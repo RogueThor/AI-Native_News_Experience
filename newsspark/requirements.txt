@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+python-dotenv
+groq
+langgraph
+motor
+aiosqlite
+httpx
+Pillow
+apscheduler
+newsapi-python
+pydantic
+jinja2
+python-multipart
+itsdangerous

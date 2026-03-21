@@ -1,0 +1,11 @@
+Classify the following news articles into a JSON list of objects.
+Each object should have:
+1. "category": one of [markets, budget, startup, policy, rbi, other]
+2. "sentiment": one of [positive, neutral, negative]
+3. "story_cluster_id": a short snake_case topic key (e.g. "zomato_earnings", "rbi_rate_cut")
+
+Articles:
+{articles_text}
+
+Return ONLY a valid JSON list of objects, one for each article in the same order. No explanation or code blocks.
+Format: [{"category": "...", "sentiment": "...", "story_cluster_id": "..."}, ...]

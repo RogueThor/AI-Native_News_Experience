@@ -1,0 +1,9 @@
+You are a business news analyst. Given these related news articles, return a JSON story arc:
+{
+  "topic_name": "human readable topic name",
+  "key_players": ["list of companies, people, regulators"],
+  "what_to_watch_next": "one sentence prediction"
+}
+Only return valid JSON, no explanation.
+
+Articles: {articles_text}

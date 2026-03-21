@@ -1,0 +1,10 @@
+Given this news article title and description, return JSON:
+{
+  "category": "one of [markets, budget, startup, policy, rbi, other]",
+  "sentiment": "one of [positive, neutral, negative]",
+  "story_cluster_id": "short snake_case topic key"
+}
+Only return valid JSON, no explanation.
+
+Title: {title}
+Description: {description}

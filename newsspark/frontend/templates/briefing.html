@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Business Briefings — NewsSpark{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="page-header">
+    <h1>📋 Business Briefings</h1>
+    <p>AI-generated deep-dives and interactive Q&amp;A on top business topics</p>
+  </div>
+
+  <!-- Topic selector chips -->
+  <div class="topic-bar" id="topicBar">
+    <button class="topic-chip active" onclick="selectTopic('markets')">📈 Markets</button>
+    <button class="topic-chip" onclick="selectTopic('budget')">💰 Budget</button>
+    <button class="topic-chip" onclick="selectTopic('startup')">🚀 Startups</button>
+    <button class="topic-chip" onclick="selectTopic('policy')">📋 Policy</button>
+    <button class="topic-chip" onclick="selectTopic('rbi')">🏦 RBI</button>
+    <button class="topic-chip" onclick="selectTopic('other')">📰 Other</button>
+  </div>
+
+  <!-- Two-panel layout -->
+  <div class="briefing-layout">
+
+    <!-- Left: Briefing text -->
+    <div class="briefing-panel">
+      <h2 style="font-size:1.1rem; font-weight:700; margin-bottom:1.25rem;" id="briefingHeading">
+        📈 Markets Briefing
+      </h2>
+      <div id="briefingLoading" style="display:none;"><div class="spinner"></div></div>
+      <div id="briefingText" class="briefing-text">
+        <div class="empty-state">
+          <div class="empty-icon">📋</div>
+          <h3>Select a topic above to generate a briefing</h3>
+          <p>AI will analyse the latest news and write a comprehensive summary.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Q&A chat -->
+    <div class="qa-panel">
+      <div class="qa-panel-header">💬 Ask a Question</div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-bubble assistant">
+          👋 Hi! Select a topic and load a briefing first, then ask me anything about it.
+        </div>
+      </div>
+      <div class="chat-input-area">
+        <input
+          type="text"
+          class="chat-input"
+          id="qaInput"
+          placeholder="Ask about this topic…"
+          onkeydown="if(event.key==='Enter') sendQuestion()"
+          aria-label="Ask a question"
+        />
+        <button class="chat-send" onclick="sendQuestion()" id="sendBtn">Send</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let currentTopic = 'markets';
+  let briefingLoaded = false;
+
+  // On load, check URL param
+  document.addEventListener('DOMContentLoaded', () => {
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get('topic');
+    if (t) selectTopic(t);
+    else selectTopic('markets');
+  });
+
+  async function selectTopic(topic) {
+    currentTopic = topic;
+    briefingLoaded = false;
+
+    // Update chips
+    document.querySelectorAll('.topic-chip').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.topic-chip').forEach(c => {
+      if (c.textContent.toLowerCase().includes(topic) || c.onclick.toString().includes(`'${topic}'`)) {
+        c.classList.add('active');
+      }
+    });
+
+    // Update heading
+    document.getElementById('briefingHeading').textContent = `📋 ${topic.charAt(0).toUpperCase() + topic.slice(1)} Briefing`;
+
+    // Load briefing
+    await loadBriefing(topic);
+  }
+
+  async function loadBriefing(topic) {
+    const loadingEl = document.getElementById('briefingLoading');
+    const textEl    = document.getElementById('briefingText');
+
+    textEl.innerHTML = '';
+    loadingEl.style.display = 'block';
+
+    try {
+      const resp = await fetch('/news/briefing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic }),
+      });
+      const data = await resp.json();
+      const text = data.briefing_text || 'No briefing available. Please try again.';
+      textEl.textContent = text;
+      briefingLoaded = true;
+    } catch (e) {
+      textEl.innerHTML = `<p style="color:var(--badge-negative-text)">Error loading briefing: ${e.message}</p>`;
+    } finally {
+      loadingEl.style.display = 'none';
+    }
+  }
+
+  async function sendQuestion() {
+    const input   = document.getElementById('qaInput');
+    const messages = document.getElementById('chatMessages');
+    const sendBtn  = document.getElementById('sendBtn');
+    const question = input.value.trim();
+    if (!question) return;
+
+    // Append user bubble
+    messages.innerHTML += `<div class="chat-bubble user">${escapeHtml(question)}</div>`;
+    input.value = '';
+    input.disabled = true;
+    sendBtn.disabled = true;
+    sendBtn.textContent = '…';
+
+    // Thinking bubble
+    const thinkId = 'thinking_' + Date.now();
+    messages.innerHTML += `<div class="chat-bubble assistant" id="${thinkId}">
+      <span class="spinner" style="width:16px;height:16px;border-width:2px;margin:0;display:inline-block;vertical-align:middle;"></span>
+      Thinking…
+    </div>`;
+    messages.scrollTop = messages.scrollHeight;
+
+    try {
+      const resp = await fetch('/news/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: currentTopic, question }),
+      });
+      const data = await resp.json();
+      const answer = data.answer_text || 'I could not answer that. Please try rephrasing.';
+      document.getElementById(thinkId).textContent = answer;
+    } catch (e) {
+      document.getElementById(thinkId).textContent = `Error: ${e.message}`;
+    } finally {
+      input.disabled = false;
+      sendBtn.disabled = false;
+      sendBtn.textContent = 'Send';
+      input.focus();
+      messages.scrollTop = messages.scrollHeight;
+    }
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+  }
+</script>
+{% endblock %}

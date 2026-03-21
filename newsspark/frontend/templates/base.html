@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}NewsSpark — AI-Powered Vernacular Business News{% endblock %}</title>
+  <meta name="description" content="NewsSpark delivers AI-powered Indian business news in Tamil, Hindi and English with story arcs and intelligent briefings."/>
+  <link rel="stylesheet" href="/static/styles.css"/>
+  <script src="/static/theme.js" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  {% if user is defined and user %}
+  <!-- Navbar (authenticated) -->
+  <nav class="navbar">
+    <a href="/feed" class="nav-brand">⚡ NewsSpark</a>
+
+    <div class="nav-center">
+      <a href="/feed"      class="nav-link {% if request.url.path == '/feed' %}active{% endif %}">Feed</a>
+      <a href="/briefing"  class="nav-link {% if request.url.path == '/briefing' %}active{% endif %}">Briefings</a>
+    </div>
+
+    <div class="nav-right">
+      <span class="nav-user">
+        <span class="nav-avatar">{{ user.avatar }}</span>
+        <span>{{ user.name }}</span>
+      </span>
+
+      <button class="theme-toggle" aria-label="Toggle theme">🌙</button>
+
+      <a href="/logout" class="btn-logout">Logout</a>
+    </div>
+  </nav>
+  {% else %}
+  <!-- Minimal navbar (unauthenticated) -->
+  <nav class="navbar">
+    <span class="nav-brand">⚡ NewsSpark</span>
+    <div class="nav-right">
+      <button class="theme-toggle" aria-label="Toggle theme">🌙</button>
+    </div>
+  </nav>
+  {% endif %}
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast" role="alert" aria-live="polite"></div>
+
+  <script>
+    // Global toast helper
+    function showToast(msg, duration = 3000) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), duration);
+    }
+  </script>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block title %}Story Arc — {{ arc.topic_name if arc else topic }} — NewsSpark{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="page-header">
+    <h1>📖 {{ arc.topic_name if arc else topic | replace('_',' ') | title }}</h1>
+    <p>Story arc · Last updated: {{ arc.last_updated[:10] if arc and arc.last_updated else 'N/A' }}</p>
+  </div>
+
+  {% if arc %}
+  <div class="arc-layout">
+
+    <!-- Left: Timeline -->
+    <div class="arc-panel">
+      <h3>📅 Timeline</h3>
+      {% if arc.timeline %}
+      <div class="timeline">
+        {% for item in arc.timeline %}
+        <div class="timeline-item">
+          <div class="timeline-dot" style="background: {% if item.sentiment == 'positive' %}var(--badge-positive-text){% elif item.sentiment == 'negative' %}var(--badge-negative-text){% else %}var(--accent){% endif %}"></div>
+          <div class="timeline-date">{{ item.date }}</div>
+          <div class="timeline-headline">{{ item.headline }}</div>
+          <span class="badge badge-{{ item.sentiment }}">{{ item.sentiment }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state"><p>No timeline data yet.</p></div>
+      {% endif %}
+    </div>
+
+    <!-- Middle: Key players + Sentiment chart -->
+    <div>
+      <div class="arc-panel" style="margin-bottom:1.5rem;">
+        <h3>👥 Key Players</h3>
+        {% if arc.key_players %}
+        <div class="player-cloud">
+          {% for player in arc.key_players %}
+          <span class="player-badge">{{ player }}</span>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted); font-size:0.875rem;">No key players identified.</p>
+        {% endif %}
+      </div>
+
+      <div class="arc-panel">
+        <h3>📊 Sentiment Trend</h3>
+        {% if arc.sentiment_trend %}
+        <div class="sentiment-chart">
+          {% for point in arc.sentiment_trend %}
+          {% set pct = ((point.score + 1) / 2 * 100) | int %}
+          {% set cls = 'positive' if point.score > 0 else ('negative' if point.score < 0 else 'neutral') %}
+          <div class="sentiment-bar-row">
+            <div class="sentiment-bar-label">{{ point.date[-5:] if point.date|length >= 5 else point.date }}</div>
+            <div class="sentiment-bar-track">
+              <div class="sentiment-bar-fill {{ cls }}" style="width:{{ pct }}%"></div>
+            </div>
+            <span class="badge badge-{{ cls }}" style="font-size:0.65rem;">{{ cls }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted); font-size:0.875rem;">No sentiment data available.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Right: What to watch next -->
+    <div>
+      <div class="arc-panel">
+        <h3>🔭 What's next</h3>
+        <p style="font-size:0.95rem; color:var(--text-secondary); line-height:1.6;">
+          {{ arc.what_to_watch_next or 'Check back after more news is collected.' }}
+        </p>
+      </div>
+
+      <div class="watch-next-card">
+        <h3>📌 Deep Dive</h3>
+        <p>Want a full briefing on this topic?</p>
+        <a href="/briefing?topic={{ arc._id }}" class="btn btn-primary" style="margin-top:1rem; display:inline-flex;">
+          Get Briefing →
+        </a>
+      </div>
+
+      <!-- Refresh arc -->
+      <div style="margin-top:1.5rem; text-align:center;">
+        <button class="btn btn-outline" onclick="refreshArc()">🔄 Refresh Arc</button>
+      </div>
+    </div>
+
+  </div><!-- /arc-layout -->
+
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">📭</div>
+    <h3>No arc data found for "{{ topic }}"</h3>
+    <p>More articles are needed to build a story arc for this topic.</p>
+    <a href="/feed" class="btn btn-primary" style="margin-top:1rem;">Back to Feed</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function refreshArc() {
+    showToast('Refreshing story arc…');
+    const resp = await fetch('/arc/data/{{ topic }}');
+    if (resp.ok) {
+      showToast('Arc refreshed! Reloading…');
+      setTimeout(() => location.reload(), 800);
+    } else {
+      showToast('Could not refresh — try again later.');
+    }
+  }
+</script>
+{% endblock %}

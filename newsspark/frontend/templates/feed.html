@@ -1,0 +1,560 @@
+{% extends "base.html" %}
+
+{% block title %}News Feed — NewsSpark{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="page-header">
+    <h1>Your News Feed</h1>
+    <p>Personalised business news for <strong id="displayRole">{{ user.role | title }}</strong> · <span id="displayName">{{ user.name }}</span></p>
+  </div>
+
+  <!-- Role tabs -->
+  <div class="role-tabs" id="roleTabs">
+    <button class="role-tab {% if user.role == 'investor' %}active{% endif %}" onclick="switchRole('investor')">💼 Investor</button>
+    <button class="role-tab {% if user.role == 'student'  %}active{% endif %}" onclick="switchRole('student')">🎓 Student</button>
+    <button class="role-tab {% if user.role == 'startup'  %}active{% endif %}" onclick="switchRole('startup')">🚀 Startup</button>
+    <button class="role-tab {% if user.role == 'salaried' %}active{% endif %}" onclick="switchRole('salaried')">👩‍💻 Salaried</button>
+  </div>
+
+  <!-- Feed grid -->
+  <div id="feedGrid" class="news-grid"></div>
+
+  <!-- Translation modal -->
+  <div class="modal-overlay" id="transModal">
+    <div class="modal-box">
+      <button class="modal-close" onclick="closeModal('transModal')" aria-label="Close">✕</button>
+      <h2 class="modal-title" id="transModalTitle">Translation</h2>
+      <div id="transModalBody">
+        <div class="spinner"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Reporter modal -->
+  <div class="modal-overlay" id="reporterModal">
+    <div class="modal-box reporter-modal-box">
+      <button class="modal-close" onclick="closeReporter()" aria-label="Close">✕</button>
+      <div class="reporter-layout">
+        <div class="reporter-anchor-wrap" id="anchorWrap">
+          <img id="anchorArt" src="/static/ai_anchor.gif" alt="AI Reporter" class="reporter-anchor-img" />
+          <div class="reporter-signal" id="reporterSignal"></div>
+          <div class="reporter-live-badge" id="reporterLiveBadge">● ON AIR</div>
+        </div>
+        <div class="reporter-content">
+          <div class="reporter-badge">🎙️ LIVE · AI REPORTER</div>
+          <h3 id="reporterTitle" class="reporter-article-title"></h3>
+          <div id="reporterSummaryBox" class="reporter-summary-box"></div>
+          <p id="reporterStatus" class="reporter-status">Fetching desi summary...</p>
+          <div class="reporter-controls">
+            <button id="reporterPlayBtn" class="btn btn-primary reporter-play-btn" onclick="toggleReporter()" disabled>⏳ Loading...</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* ── AI Reporter Modal ───────────────────────── */
+  .reporter-modal-box {
+    max-width: 760px;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    border: 1px solid rgba(99,179,237,0.25);
+  }
+  .reporter-layout {
+    display: flex;
+    gap: 0;
+    min-height: 360px;
+  }
+  .reporter-anchor-wrap {
+    position: relative;
+    width: 240px;
+    flex-shrink: 0;
+    background: linear-gradient(180deg, #1a2a4a 0%, #0d1b2a 100%);
+    display: flex;
+    align-items: flex-end;
+    overflow: hidden;
+  }
+  /* Anchor GIF */
+  .reporter-anchor-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: top center;
+    display: block;
+  }
+  /* Subtle sway on the anchor wrap while talking */
+  .reporter-anchor-wrap.talking-wrap {
+    animation: bodySwayWrap 1.6s ease-in-out infinite alternate;
+  }
+  @keyframes bodySwayWrap {
+    0%   { transform: rotate(0deg) translateX(0px); }
+    50%  { transform: rotate(0.3deg) translateX(1px); }
+    100% { transform: rotate(-0.3deg) translateX(-1px); }
+  }
+  .reporter-signal {
+    position: absolute;
+    top: 12px; left: 12px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 0 0 rgba(34,197,94,0.7);
+    transition: all 0.3s;
+  }
+  .reporter-signal.live {
+    animation: pulse-signal 1.2s infinite;
+  }
+  .reporter-live-badge {
+    position: absolute;
+    bottom: 10px; left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.5px;
+    color: white;
+    background: #ef4444;
+    padding: 3px 10px;
+    border-radius: 4px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .reporter-live-badge.show { opacity: 1; }
+  @keyframes pulse-signal {
+    0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.7); }
+    70%  { box-shadow: 0 0 0 10px rgba(34,197,94,0); }
+    100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+  }
+  .reporter-content {
+    flex: 1;
+    padding: 24px 28px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    justify-content: flex-start;
+  }
+  .reporter-badge {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #63b3ed;
+    background: rgba(99,179,237,0.12);
+    padding: 4px 10px;
+    border-radius: 20px;
+    display: inline-block;
+    width: max-content;
+  }
+  .reporter-article-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #f1f5f9;
+    line-height: 1.4;
+    margin: 0;
+  }
+  /* Word-by-word summary display */
+  .reporter-summary-box {
+    flex: 1;
+    font-size: 0.88rem;
+    color: #94a3b8;
+    line-height: 1.7;
+    min-height: 90px;
+    max-height: 140px;
+    overflow-y: auto;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .reporter-summary-box .word {
+    display: inline;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .reporter-summary-box .word.visible {
+    opacity: 1;
+    color: #e2e8f0;
+  }
+  .reporter-summary-box .word.active {
+    color: #63b3ed;
+    font-weight: 600;
+  }
+  .reporter-status {
+    font-size: 0.8rem;
+    color: #64748b;
+    margin: 0;
+  }
+  .reporter-play-btn {
+    padding: 10px 28px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border-radius: 50px;
+    letter-spacing: 0.5px;
+  }
+  .reporter-play-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .reporter-controls { display: flex; gap: 10px; margin-top: 2px; }
+
+  /* ── Lang pill reporter button ────────────── */
+  .lang-pill.reporter-pill {
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+    color: white;
+    border: none;
+    font-size: 0.75rem;
+    letter-spacing: 0.3px;
+  }
+  .lang-pill.reporter-pill:hover {
+    filter: brightness(1.15);
+    transform: scale(1.05);
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const CURRENT_ROLE = "{{ user.role }}";
+  const LANG_PREF    = "{{ user.language_pref }}";
+
+  const CATEGORY_ICON = {
+    markets: '📈', budget: '💰', startup: '🚀',
+    policy: '📋', rbi: '🏦', other: '📰'
+  };
+
+  let feedData = [];
+
+  async function loadFeed() {
+    const grid = document.getElementById('feedGrid');
+    grid.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+    try {
+      const resp = await fetch('/news/feed');
+      if (!resp.ok) throw new Error('Failed to load feed');
+      const data = await resp.json();
+      feedData = data.feed || [];
+      renderFeed(feedData);
+    } catch (e) {
+      grid.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <h3>Could not load news</h3>
+        <p>${e.message}</p>
+        <button class="btn btn-primary" onclick="loadFeed()" style="margin-top:1rem;">Retry</button>
+      </div>`;
+    }
+  }
+
+  function renderFeed(articles) {
+    const grid = document.getElementById('feedGrid');
+    if (!articles.length) {
+      grid.innerHTML = `<div class="empty-state">
+        <div class="empty-icon">🗞️</div>
+        <h3>No articles yet</h3>
+        <p>News is being fetched — check back in a moment.</p>
+      </div>`;
+      return;
+    }
+
+    grid.innerHTML = articles.map(a => {
+      const catIcon = CATEGORY_ICON[a.category] || '📰';
+      const imgHtml = a.image_url
+        ? `<img src="${escapeHtml(a.image_url)}" alt="${escapeHtml(a.title)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+           <div class="gif-placeholder" style="display:none;">${catIcon}</div>`
+        : `<div class="gif-placeholder">${catIcon}</div>`;
+      const dateStr  = a.published_at ? a.published_at.substring(0, 10) : '';
+      const sentCls  = `badge badge-${a.sentiment || 'neutral'}`;
+      const catCls   = 'badge badge-accent';
+      const artId    = a._id || '';
+      const title    = escapeHtml(a.title || '');
+      const desc     = escapeHtml(a.description || '');
+
+      return `<div class="card news-card" onclick="openArticle('${escapeHtml(a.url)}')">
+        <div class="news-card-media">
+          ${imgHtml}
+          <div class="media-badges">
+            <span class="${catCls}">${catIcon} ${a.category || 'other'}</span>
+            <span class="${sentCls}">${a.sentiment || 'neutral'}</span>
+          </div>
+        </div>
+        <div class="news-card-body">
+          <div class="news-card-title">${title}</div>
+          <div class="news-card-desc">${desc}</div>
+          <div class="news-card-meta">
+            <span>📰 ${escapeHtml(a.source || '')}</span>
+            <span>·</span>
+            <span>🕐 ${dateStr}</span>
+            ${a.story_cluster_id ? `<span>·</span><a href="/arc/${encodeURIComponent(a.story_cluster_id)}" onclick="event.stopPropagation()" class="badge badge-muted">Story Arc →</a>` : ''}
+          </div>
+          <div class="news-card-footer">
+            <div class="lang-pills">
+              ${artId ? `<button class="lang-pill" onclick="event.stopPropagation(); openTranslation('${artId}','tamil')" title="Tamil">த</button>` : ''}
+              ${artId ? `<button class="lang-pill" onclick="event.stopPropagation(); openTranslation('${artId}','hindi')" title="Hindi">हि</button>` : ''}
+              ${artId ? `<button class="lang-pill reporter-pill" onclick="event.stopPropagation(); openReporter('${artId}')" title="AI Reporter">🎙️</button>` : ''}
+            </div>
+            <a class="read-more" href="${escapeHtml(a.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Read More →</a>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function openArticle(url) {
+    if (url && url !== 'undefined') window.open(url, '_blank', 'noopener');
+  }
+
+  /* ── Translation ─────────────────────────────── */
+  async function openTranslation(articleId, lang) {
+    const modal = document.getElementById('transModal');
+    const title = document.getElementById('transModalTitle');
+    const body  = document.getElementById('transModalBody');
+    title.textContent = lang === 'tamil' ? 'தமிழ் மொழிபெயர்ப்பு' : 'हिंदी अनुवाद';
+    body.innerHTML = '<div class="spinner"></div>';
+    modal.classList.add('open');
+    try {
+      const resp = await fetch(`/news/translate/${articleId}?lang=${lang}`);
+      const data = await resp.json();
+      const text = data.translated_text || 'Translation not available.';
+      body.innerHTML = `<div class="modal-translated-text">${escapeHtml(text)}</div>`;
+    } catch (e) {
+      body.innerHTML = '<p style="color:var(--badge-negative-text)">Translation failed. Please try again.</p>';
+    }
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+  }
+  document.getElementById('transModal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal('transModal');
+  });
+
+  /* ── AI Reporter ─────────────────────────────── */
+  let reporterArticleId = null;
+  let reporterSummaryText = '';
+  let reporterWords = [];
+  let reporterWordIndex = 0;
+  let reporterPlaying = false;
+
+  async function openReporter(artId) {
+    stopReporter();
+    
+    // Look up article from feedData to avoid inline quotes syntax errors
+    const article = feedData && feedData.find(a => a._id === artId);
+    const title = article ? article.title : 'News';
+    const description = article ? article.description : '';
+
+    reporterArticleId = artId;
+    document.getElementById('reporterTitle').textContent = title;
+    document.getElementById('reporterSummaryBox').innerHTML = '';
+    document.getElementById('reporterStatus').textContent = 'Fetching desi summary...';
+    document.getElementById('reporterPlayBtn').textContent = '⏳ Loading...';
+    document.getElementById('reporterPlayBtn').disabled = true;
+    document.getElementById('reporterSignal').classList.remove('live');
+    document.getElementById('reporterLiveBadge').classList.remove('show');
+    document.getElementById('reporterModal').classList.add('open');
+    document.getElementById('reporterStatus').textContent = 'Fetching summary...';
+
+    try {
+      const resp = await fetch(`/news/reporter/${artId}`);
+      const data = await resp.json();
+      const summary = data.summary || `${title}. ${description}`;
+      reporterSummaryText = summary;
+      // Build word spans
+      reporterWords = summary.split(' ');
+      const box = document.getElementById('reporterSummaryBox');
+      box.innerHTML = reporterWords.map((w, i) =>
+        `<span class="word" id="rw_${i}">${escapeHtml(w)} </span>`
+      ).join('');
+      document.getElementById('reporterStatus').textContent = 'Ready! Press Play to hear the summary';
+      document.getElementById('reporterPlayBtn').textContent = '▶ Play';
+      document.getElementById('reporterPlayBtn').disabled = false;
+    } catch(e) {
+      const fallback = `${title}. ${description}`;
+      reporterSummaryText = fallback;
+      document.getElementById('reporterStatus').textContent = 'Press Play to hear the summary';
+      document.getElementById('reporterPlayBtn').textContent = '▶ Play';
+      document.getElementById('reporterPlayBtn').disabled = false;
+    }
+  }
+
+  function _buildUtterance() {
+    const u = new SpeechSynthesisUtterance(reporterSummaryText);
+    
+    // Attempt to find a Male Indian voice
+    function setMaleVoice() {
+      const voices = window.speechSynthesis.getVoices();
+      if (!voices.length) return; // Voices not loaded yet
+
+      // Look for Indian Male voices (Rishi, Ravi, Indian English/Hindi Male)
+      let maleVoice = voices.find(v => 
+        (v.lang === 'en-IN' || v.lang === 'hi-IN') && 
+        (v.name.toLowerCase().includes('male') || v.name.includes('Rishi') || v.name.includes('Ravi'))
+      );
+      
+      // Fallback: Any Indian English voice
+      if (!maleVoice) {
+        maleVoice = voices.find(v => v.lang === 'en-IN');
+      }
+      
+      // Fallback: Default system default or first available
+      if (!maleVoice && voices.length > 0) maleVoice = voices[0];
+      
+      if (maleVoice) {
+        u.voice = maleVoice;
+      }
+    }
+
+    // Try setting voice immediately
+    setMaleVoice();
+    
+    // In many browsers, voices load asynchronously, so handle that edge case
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = setMaleVoice;
+    }
+
+    u.lang = 'en-IN';
+    u.rate = 0.95; // Slightly slower for news anchor feel
+    u.pitch = 0.8; // Lower pitch for male voice
+
+    // Reset word highlights
+    reporterWordIndex = 0;
+    document.querySelectorAll('.reporter-summary-box .word').forEach(el => {
+      el.classList.remove('visible', 'active');
+    });
+
+    u.onboundary = (ev) => {
+      if (ev.name === 'word') {
+        const prevEl = document.getElementById(`rw_${reporterWordIndex - 1}`);
+        if (prevEl) { prevEl.classList.remove('active'); prevEl.classList.add('visible'); }
+        const el = document.getElementById(`rw_${reporterWordIndex}`);
+        if (el) { el.classList.add('visible', 'active'); el.scrollIntoView({ block: 'nearest' }); }
+        reporterWordIndex++;
+      }
+    };
+
+    u.onstart = () => {
+      document.getElementById('reporterStatus').textContent = '● Reporting LIVE...';
+      document.getElementById('reporterSignal').classList.add('live');
+      document.getElementById('reporterLiveBadge').classList.add('show');
+      startAnchorAnimation();
+      document.getElementById('reporterPlayBtn').textContent = '⏸ Pause';
+      reporterPlaying = true;
+    };
+    u.onend = () => {
+      document.getElementById('reporterStatus').textContent = '✓ Report complete!';
+      document.getElementById('reporterSignal').classList.remove('live');
+      document.getElementById('reporterLiveBadge').classList.remove('show');
+      stopAnchorAnimation();
+      document.getElementById('reporterPlayBtn').textContent = '▶ Play Again';
+      reporterPlaying = false;
+      // Show all words
+      document.querySelectorAll('.reporter-summary-box .word').forEach(el => {
+        el.classList.add('visible');
+        el.classList.remove('active');
+      });
+    };
+    u.onerror = () => {
+      document.getElementById('reporterStatus').textContent = 'Speech not supported in this browser.';
+      document.getElementById('anchorImg').classList.remove('talking');
+      reporterPlaying = false;
+    };
+    return u;
+  }
+
+  function toggleReporter() {
+    const synth = window.speechSynthesis;
+    if (!synth) {
+      document.getElementById('reporterStatus').textContent = 'Speech not supported in this browser.';
+      return;
+    }
+    if (synth.paused) {
+      synth.resume();
+      document.getElementById('reporterPlayBtn').textContent = '⏸ Pause';
+      document.getElementById('reporterSignal').classList.add('live');
+      document.getElementById('reporterLiveBadge').classList.add('show');
+      document.getElementById('reporterStatus').textContent = '● Reporting LIVE...';
+      startAnchorAnimation();
+      reporterPlaying = true;
+    } else if (synth.speaking && reporterPlaying) {
+      synth.pause();
+      document.getElementById('reporterPlayBtn').textContent = '▶ Resume';
+      document.getElementById('reporterSignal').classList.remove('live');
+      document.getElementById('reporterLiveBadge').classList.remove('show');
+      document.getElementById('reporterStatus').textContent = 'Paused';
+      stopAnchorAnimation();
+      reporterPlaying = false;
+    } else {
+      synth.cancel();
+      reporterUtterance = _buildUtterance();
+      synth.speak(reporterUtterance);
+    }
+  }
+
+  function stopReporter() {
+    window.speechSynthesis && window.speechSynthesis.cancel();
+    reporterPlaying = false;
+    stopAnchorAnimation();
+  }
+
+  /* ── GIF sway animation ─────────────────────── */
+  function startAnchorAnimation() {
+    const wrap = document.getElementById('anchorWrap');
+    if (wrap) wrap.classList.add('talking-wrap');
+  }
+  
+  function stopAnchorAnimation() {
+    const wrap = document.getElementById('anchorWrap');
+    if (wrap) wrap.classList.remove('talking-wrap');
+  }
+
+  function closeReporter() {
+    stopReporter();
+    closeModal('reporterModal');
+  }
+
+  document.getElementById('reporterModal').addEventListener('click', function(e) {
+    if (e.target === this) closeReporter();
+  });
+
+  /* ── Role switching ──────────────────────────── */
+  async function switchRole(role) {
+    const fd = new FormData();
+    fd.append('role', role);
+    try {
+      const resp = await fetch('/login', { method: 'POST', body: fd });
+      if (!resp.ok) throw new Error('Login failed');
+      document.querySelectorAll('.role-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('onclick').includes(role));
+      });
+      const roleMap = {
+        investor: { name: 'Arjun Mehta',  label: 'Investor' },
+        student:  { name: 'Priya Sharma', label: 'Student'  },
+        startup:  { name: 'Kiran Rao',    label: 'Startup'  },
+        salaried: { name: 'Deepa Nair',   label: 'Salaried' }
+      };
+      const info = roleMap[role];
+      if (info) {
+        document.getElementById('displayRole').textContent = info.label;
+        document.getElementById('displayName').textContent = info.name;
+      }
+      await loadFeed();
+    } catch (e) {
+      console.error(e);
+      alert('Failed to switch role');
+    }
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Init
+  loadFeed();
+</script>
+{% endblock %}

@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login — NewsSpark</title>
+  <meta name="description" content="Sign in to NewsSpark, the AI-powered vernacular business news platform."/>
+  <link rel="stylesheet" href="/static/styles.css"/>
+  <script src="/static/theme.js" defer></script>
+</head>
+<body>
+
+  <!-- Theme toggle (top-right) -->
+  <button class="theme-toggle login-theme-toggle" aria-label="Toggle theme">🌙</button>
+
+  <div class="login-page">
+    <div class="login-card">
+
+      <!-- Logo -->
+      <div class="login-logo">
+        <span class="logo-icon">⚡</span>
+        <div class="logo-name">NewsSpark</div>
+        <div class="logo-tagline">AI-Powered Vernacular Business News</div>
+      </div>
+
+      <!-- Heading -->
+      <h1 class="login-heading">Choose Your Profile</h1>
+      <p class="login-subtext">Select a demo profile to explore NewsSpark</p>
+
+      <!-- Profile cards grid -->
+      <div class="profile-grid" id="profileGrid">
+
+        <!-- Investor -->
+        <div class="profile-card" onclick="doLogin('investor')" tabindex="0" role="button" aria-label="Login as Arjun Mehta (Investor)">
+          <span class="profile-avatar">💼</span>
+          <span class="profile-name">Arjun Mehta</span>
+          <span class="profile-role">Investor</span>
+          <span class="profile-lang">EN</span>
+        </div>
+
+        <!-- Student -->
+        <div class="profile-card" onclick="doLogin('student')" tabindex="0" role="button" aria-label="Login as Priya Sharma (Student)">
+          <span class="profile-avatar">🎓</span>
+          <span class="profile-name">Priya Sharma</span>
+          <span class="profile-role">Student</span>
+          <span class="profile-lang">தமிழ்</span>
+        </div>
+
+        <!-- Startup -->
+        <div class="profile-card" onclick="doLogin('startup')" tabindex="0" role="button" aria-label="Login as Kiran Rao (Startup)">
+          <span class="profile-avatar">🚀</span>
+          <span class="profile-name">Kiran Rao</span>
+          <span class="profile-role">Startup</span>
+          <span class="profile-lang">EN</span>
+        </div>
+
+        <!-- Salaried -->
+        <div class="profile-card" onclick="doLogin('salaried')" tabindex="0" role="button" aria-label="Login as Deepa Nair (Salaried)">
+          <span class="profile-avatar">👩‍💻</span>
+          <span class="profile-name">Deepa Nair</span>
+          <span class="profile-role">Salaried</span>
+          <span class="profile-lang">हिंदी</span>
+        </div>
+
+      </div><!-- /profile-grid -->
+
+      <!-- Loading indicator (hidden until login POST) -->
+      <div id="loginLoading" style="display:none; margin-top:1.25rem; text-align:center;">
+        <div class="spinner"></div>
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-top:0.25rem;">Signing you in…</p>
+      </div>
+
+    </div><!-- /login-card -->
+  </div><!-- /login-page -->
+
+  <script>
+    // Keyboard: Enter / Space triggers card click
+    document.querySelectorAll('.profile-card').forEach(card => {
+      card.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') card.click();
+      });
+    });
+
+    async function doLogin(role) {
+      // Show loading
+      document.getElementById('profileGrid').style.pointerEvents = 'none';
+      document.getElementById('loginLoading').style.display = 'block';
+
+      const formData = new FormData();
+      formData.append('role', role);
+
+      try {
+        const resp = await fetch('/login', {
+          method: 'POST',
+          body: formData,
+          redirect: 'manual',
+        });
+
+        // Any 3xx is a redirect to /feed
+        if (resp.status === 303 || resp.status === 302 || resp.ok || resp.type === 'opaqueredirect') {
+          window.location.href = '/feed';
+        } else {
+          const txt = await resp.text();
+          alert('Login failed: ' + txt);
+          document.getElementById('profileGrid').style.pointerEvents = '';
+          document.getElementById('loginLoading').style.display = 'none';
+        }
+      } catch (e) {
+        // Network redirect triggers CORS opaque – just redirect
+        window.location.href = '/feed';
+      }
+    }
+  </script>
+</body>
+</html>
