@@ -108,7 +108,7 @@
 <script>
   async function refreshArc() {
     showToast('Refreshing story arc…');
-    const resp = await fetch('/arc/data/{{ topic }}');
+    const resp = await fetch('/arc/data/{{ topic }}?refresh=true');
     if (resp.ok) {
       showToast('Arc refreshed! Reloading…');
       setTimeout(() => location.reload(), 800);

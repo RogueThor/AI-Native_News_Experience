@@ -1,11 +1,17 @@
 """
-main.py – NewsSpark FastAPI application entry point.
-Handles startup (MongoDB, SQLite, demo users, scheduler), 
+main.py — NewsSpark FastAPI application entry point.
+Handles startup (MongoDB, SQLite, ChromaDB, demo users, scheduler),
 session middleware, static files, templates, and router includes.
 """
 
 import os
 import asyncio
+import sys
+
+# Windows-specific fix for motor/asyncio SSL issues
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -34,29 +40,58 @@ scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    await init_mongo()
-    await init_sqlite()
+    # ── Startup ──
+    print("[Startup] LifeSpan started.")
+    try:
+        from db.mongo import init_mongo_sync
+        await asyncio.to_thread(init_mongo_sync)
+    except Exception as e:
+        print(f"[Lifespan] MongoDB init error: {e}")
 
-    # Upsert all demo users into MongoDB
-    for user in DEMO_USERS.values():
-        await upsert_user(user)
-    print("[Startup] Demo users upserted to MongoDB.")
+    try:
+        from db.sqlite import init_sqlite
+        await init_sqlite()
+    except Exception as e:
+        print(f"[Lifespan] SQLite init error: {e}")
 
-    # Run Agent 1 once immediately
-    from agents.fetcher import scheduled_fetch
-    asyncio.create_task(scheduled_fetch())
-    print("[Startup] Initial news fetch started.")
+    # Upsert all demo users into MongoDB (if connected)
+    try:
+        from db.demo_users import DEMO_USERS
+        from db.mongo import upsert_user
+        for user_data in DEMO_USERS.values():
+            await upsert_user(user_data)
+        print("[Startup] Demo users upserted.")
+    except Exception as e:
+        print(f"[Startup] Demo user upsert skip: {e}")
 
-    # Schedule Agent 1 every 30 minutes
-    scheduler.add_job(scheduled_fetch, "interval", minutes=30)
-    scheduler.start()
-    print("[Scheduler] News fetch scheduled every 30 minutes.")
+    # Initialize ChromaDB
+    try:
+        from db.chroma import init_chroma
+        await asyncio.to_thread(init_chroma)
+        print("[Startup] ChromaDB initialized.")
+    except Exception as e:
+        print(f"[Startup] ChromaDB error: {e}")
+
+    # Start the fetcher agent
+    try:
+        from agents.fetcher_agent import scheduled_fetch
+        asyncio.create_task(scheduled_fetch())
+        print("[Startup] Fetcher task started.")
+        
+        if not scheduler.running:
+            scheduler.add_job(scheduled_fetch, "interval", minutes=30)
+            scheduler.start()
+            print("[Scheduler] Started.")
+    except Exception as e:
+        print(f"[Startup] Scheduler/Fetcher error: {e}")
 
     yield
 
-    # Shutdown
-    scheduler.shutdown(wait=False)
+    # ── Shutdown ──
+    print("[Shutdown] LifeSpan ending.")
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+    print("[Shutdown] Done.")
     print("[Shutdown] Scheduler stopped.")
 
 
@@ -64,12 +99,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="NewsSpark",
-    description="AI-Native Vernacular Business News Platform",
-    version="1.0.0",
+    description="AI-Native Indian News Platform",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
-# Session middleware (required for request.session)
+# Session middleware
 app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
@@ -85,7 +120,7 @@ app.mount(
     name="static",
 )
 
-# Templates (only used in routers, but also available here)
+# Templates
 templates = Jinja2Templates(
     directory=os.path.join(BASE_DIR, "frontend", "templates")
 )
@@ -101,7 +136,7 @@ async def root(request: Request):
     return RedirectResponse(url="/login")
 
 
-# ── Include routers ───────────────────────────────────────────────────────────
+# ── Include existing routes ───────────────────────────────────────────────────
 
 from routes.user import router as user_router
 from routes.news import router as news_router
@@ -112,8 +147,35 @@ app.include_router(news_router)
 app.include_router(arc_router)
 
 
+# ── Include new routers ───────────────────────────────────────────────────────
+
+from routers.feed import router as feed_ws_router
+from routers.articles import router as articles_router
+from routers.chat import router as chat_router
+from routers.users import router as users_router
+
+app.include_router(feed_ws_router)
+app.include_router(articles_router)
+app.include_router(chat_router)
+app.include_router(users_router)
+
+
+# ── Chat page ─────────────────────────────────────────────────────────────────
+
+@app.get("/chat")
+async def chat_page(request: Request):
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return RedirectResponse(url="/login")
+    from db.mongo import get_user_by_id
+    user = await get_user_by_id(user_id)
+    return templates.TemplateResponse("chat.html", {"request": request, "user": user})
+
+
 # ── Dev entry point ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    # Passing the app object directly (not string) and disabling reload 
+    # provides the most stable SSL environment on Windows/Python 3.13
+    uvicorn.run(app, host="0.0.0.0", port=8000)

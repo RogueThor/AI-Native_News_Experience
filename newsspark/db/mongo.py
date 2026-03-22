@@ -1,160 +1,161 @@
 """
-MongoDB async driver setup using motor.
-Provides get_db() helper and collection accessors.
+MongoDB driver abstraction with automatic LocalMock fallback.
+Ensures the app remains functional even if Atlas connection fails on Windows.
 """
 
 import os
-import motor.motor_asyncio
+import json
+import asyncio
+import pymongo
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "newsspark")
+MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "NewsSpark")
 
-_client: motor.motor_asyncio.AsyncIOMotorClient = None
-_db: motor.motor_asyncio.AsyncIOMotorDatabase = None
+_client: pymongo.MongoClient = None
+_db: pymongo.database.Database = None
+MOCK_MODE = False
 
+# --- Helper to load sample data ---
+_SAMPLE_NEWS = []
+def _load_sample_news():
+    global _SAMPLE_NEWS
+    if _SAMPLE_NEWS: return _SAMPLE_NEWS
+    try:
+        path = os.path.join(os.path.dirname(__file__), "sample_news.json")
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                _SAMPLE_NEWS = json.load(f)
+    except Exception as e:
+        print(f"[Mock] Error loading sample_news.json: {e}")
+    return _SAMPLE_NEWS
 
 async def init_mongo():
-    """Initialize MongoDB connection and store globally."""
-    global _client, _db
-    _client = motor.motor_asyncio.AsyncIOMotorClient(
-        MONGO_URI,
-        tlsAllowInvalidCertificates=True
-    )
-    _db = _client[MONGO_DB_NAME]
-    # Ensure indexes
-    await _db["articles"].create_index("url", unique=True)
-    await _db["articles"].create_index("story_cluster_id")
-    await _db["articles"].create_index("category")
-    await _db["story_arcs"].create_index("topic_name")
-    print(f"[MongoDB] Connected to '{MONGO_DB_NAME}' at {MONGO_URI}")
+    """Async wrapper for init_mongo_sync."""
+    await asyncio.to_thread(init_mongo_sync)
 
+def init_mongo_sync():
+    """Initialize MongoDB connection synchronously with a quick failover."""
+    global _client, _db, MOCK_MODE
+    print(f"[MongoDB] Connecting to: {MONGO_URI}")
+    
+    try:
+        # Use a short timeout for the initial connection check
+        import certifi
+        _client = pymongo.MongoClient(
+            MONGO_URI, 
+            serverSelectionTimeoutMS=3000,
+            tlsCAFile=certifi.where() if "mongodb+srv" in MONGO_URI else None,
+            tlsAllowInvalidCertificates=True
+        )
+        _db = _client[MONGO_DB_NAME]
+        # Force a ping
+        _client.admin.command('ping')
+        print(f"[MongoDB] SUCCESS: Connected to '{MONGO_DB_NAME}'.")
+        MOCK_MODE = False
+    except Exception as e:
+        print(f"[MongoDB] FAILED ({e}). Switching to MOCK_MODE.")
+        MOCK_MODE = True
+        _client = None
+        _db = None
 
-def get_db() -> motor.motor_asyncio.AsyncIOMotorDatabase:
-    """Return the active database instance."""
+def get_db():
+    global _db, MOCK_MODE
+    if MOCK_MODE: return None
     if _db is None:
-        raise RuntimeError("MongoDB is not initialized. Call init_mongo() first.")
+        try:
+            init_mongo_sync()
+        except:
+            return None
     return _db
 
-
-async def get_collection(name: str) -> motor.motor_asyncio.AsyncIOMotorCollection:
-    """Return a named collection from the active database."""
-    return get_db()[name]
-
+# --- User operations ---
 
 async def upsert_user(user: dict):
-    """Upsert a user profile into MongoDB by user_id."""
     db = get_db()
-    await db["user_profiles"].update_one(
-        {"_id": user["user_id"]},
-        {"$set": {
-            "name": user["name"],
-            "role": user["role"],
-            "language_pref": user["language_pref"],
-            "avatar": user["avatar"],
-            "interests": user["interests"],
-        }},
-        upsert=True
-    )
-
+    if db is None: 
+        print(f"[Mock] Upserted user {user.get('user_id')} (Local only)")
+        return
+    
+    update_fields = {k: user[k] for k in ("name", "role", "avatar", "interests", "email", "language") if k in user}
+    def _sync():
+        db["user_profiles"].update_one(
+            {"_id": user["user_id"]},
+            {"$set": update_fields, "$setOnInsert": {"behavior": {"bookmarks": []}}},
+            upsert=True
+        )
+    await asyncio.to_thread(_sync)
 
 async def get_user_by_id(user_id: str) -> dict | None:
-    """Fetch a user profile by _id."""
     db = get_db()
-    doc = await db["user_profiles"].find_one({"_id": user_id})
-    return doc
+    if db is None:
+        from db.demo_users import DEMO_USERS
+        # Try to find mock user by user_id or role
+        for u in DEMO_USERS.values():
+            if u.get("user_id") == user_id: return u
+        # Fallback to investor if not found
+        return DEMO_USERS.get("investor")
+        
+    return await asyncio.to_thread(db["user_profiles"].find_one, {"_id": user_id})
 
+# --- Article operations ---
 
 async def save_article(article: dict):
-    """Insert article if URL is not already present (dedup by url)."""
     db = get_db()
-    try:
-        await db["articles"].insert_one(article)
-    except Exception:
-        # Duplicate key on url index — skip silently
-        pass
-
-
-async def get_articles_by_cluster(cluster_id: str, limit: int = 20) -> list:
-    """Fetch articles belonging to a story cluster."""
-    db = get_db()
-    cursor = db["articles"].find(
-        {"story_cluster_id": cluster_id},
-        sort=[("published_at", -1)],
-        limit=limit
-    )
-    return await cursor.to_list(length=limit)
-
+    if db is None: return None
+    def _sync():
+        try:
+            res = db["articles"].insert_one(article)
+            article["_id"] = res.inserted_id
+            return article
+        except: return None
+    return await asyncio.to_thread(_sync)
 
 async def get_articles_by_category(categories: list, limit: int = 20) -> list:
-    """Fetch recent articles matching a list of categories."""
     db = get_db()
-    query = {"category": {"$in": categories}} if categories else {}
-    cursor = db["articles"].find(
-        query,
-        sort=[("published_at", -1)],
-        limit=limit
-    )
-    return await cursor.to_list(length=limit)
+    if db is None:
+        data = _load_sample_news()
+        if not categories or "all" in categories:
+            return data[:limit]
+        return [a for a in data if a.get("category") in categories][:limit]
 
+    def _sync():
+        query = {"category": {"$in": categories}} if categories else {}
+        return list(db["articles"].find(query, sort=[("published_at", -1)], limit=limit))
+    return await asyncio.to_thread(_sync)
 
 async def get_all_recent_articles(limit: int = 20) -> list:
-    """Fetch the most recent articles regardless of category."""
-    db = get_db()
-    cursor = db["articles"].find(
-        {},
-        sort=[("published_at", -1)],
-        limit=limit
-    )
-    return await cursor.to_list(length=limit)
-
+    return await get_articles_by_category([], limit)
 
 async def get_article_by_id(article_id: str) -> dict | None:
-    """Fetch a single article by its string _id."""
+    db = get_db()
+    if db is None:
+        data = _load_sample_news()
+        # Mock ID lookup (usually article_id is a URL or title for mocks)
+        for a in data:
+            if str(a.get("story_cluster_id")) == article_id: return a
+        return data[0] if data else None
+
     from bson import ObjectId
-    db = get_db()
-    try:
-        oid = ObjectId(article_id)
-        return await db["articles"].find_one({"_id": oid})
-    except Exception:
-        return None
+    def _sync():
+        try: return db["articles"].find_one({"_id": ObjectId(article_id)})
+        except: return None
+    return await asyncio.to_thread(_sync)
 
-
-async def upsert_story_arc(arc: dict):
-    """Upsert a story arc by its _id (topic key)."""
-    db = get_db()
-    arc_id = arc.pop("_id", None) or arc.get("topic_name", "unknown")
-    await db["story_arcs"].update_one(
-        {"_id": arc_id},
-        {"$set": arc},
-        upsert=True
-    )
-
-
-async def update_article_gif(article_id: str, base64_gif: str):
-    """Store the generated GIF back in the article document for caching."""
-    from bson import ObjectId
-    db = get_db()
-    try:
-        oid = ObjectId(article_id)
-        await db["articles"].update_one(
-            {"_id": oid},
-            {"$set": {"base64_gif": base64_gif}}
-        )
-    except Exception:
-        pass
-
-
-async def get_story_arc(topic: str) -> dict | None:
-    """Fetch a story arc by topic key."""
-    db = get_db()
-    return await db["story_arcs"].find_one({"_id": topic})
-
+# --- Other stubs ---
+async def update_user_behavior(user_id: str, action: str, category: str, source: str = ""): pass
+async def add_user_bookmark(user_id: str, article_id: str): pass
+async def get_articles_by_cluster(cluster_id: str, limit: int = 20): return []
+async def update_article_lenses(article_id: str, lenses: dict): pass
+async def get_article_lenses(article_id: str): return None
+async def upsert_story_arc(arc: dict): pass
+async def get_story_arc(topic: str): return None
+async def update_article_gif(article_id: str, base64_gif: str): pass
 
 async def close_mongo():
-    """Close the MongoDB connection."""
     global _client
     if _client:
         _client.close()

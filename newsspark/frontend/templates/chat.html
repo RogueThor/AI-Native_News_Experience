@@ -1,0 +1,386 @@
+{% extends "base.html" %}
+{% block title %}Catch Me Up — NewsSpark{% endblock %}
+
+{% block head %}
+<style>
+  .chat-container {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .chat-header {
+    text-align: center;
+  }
+  .chat-header h1 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 0 0 0.25rem;
+  }
+  .chat-header p { color: var(--text-muted); font-size: 0.88rem; margin: 0; }
+
+  .suggested-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+  }
+  .chip {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 1.5rem;
+    padding: 0.4rem 0.9rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all .2s;
+    color: var(--text-primary);
+    white-space: nowrap;
+  }
+  .chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .chat-history {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-height: 200px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 1rem;
+    background: var(--card-bg);
+    border-radius: 1rem;
+    border: 1px solid var(--border);
+  }
+  .chat-message {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .user-bubble {
+    align-self: flex-end;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 1rem 1rem 0.25rem 1rem;
+    padding: 0.65rem 1rem;
+    max-width: 75%;
+    font-size: 0.9rem;
+  }
+  .bot-response {
+    align-self: flex-start;
+    max-width: 95%;
+    width: 100%;
+  }
+  .response-topic {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  .response-summary {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg);
+    border-radius: 0.5rem;
+    border-left: 3px solid var(--accent);
+  }
+  .timeline-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  .timeline-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--card-bg);
+    border-radius: 0.5rem;
+    border: 1px solid var(--border);
+  }
+  .timeline-date {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    font-weight: 600;
+    min-width: 50px;
+  }
+  .timeline-headline { font-size: 0.82rem; color: var(--text-primary); line-height: 1.4; }
+  .sentiment-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 4px;
+  }
+  .s-positive { background: #10b981; }
+  .s-negative { background: #ef4444; }
+  .s-neutral  { background: #6b7280; }
+  .response-sources {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+  }
+  .source-tag {
+    display: inline-block;
+    background: var(--border);
+    border-radius: 0.25rem;
+    padding: 0.15rem 0.4rem;
+    margin: 0.15rem;
+  }
+
+  .thinking-indicator {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    padding: 0.75rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+  .dot-anim span {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: bounce 1.2s infinite;
+  }
+  .dot-anim span:nth-child(2) { animation-delay: .2s; }
+  .dot-anim span:nth-child(3) { animation-delay: .4s; }
+  @keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+
+  .chat-input-bar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  #chatInput {
+    flex: 1;
+    border-radius: 0.75rem;
+    border: 1.5px solid var(--border);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color .2s;
+  }
+  #chatInput:focus { border-color: var(--accent); }
+  #sendBtn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 0.75rem;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+    font-weight: 600;
+    transition: opacity .2s;
+  }
+  #sendBtn:disabled { opacity: .5; cursor: not-allowed; }
+
+  .ws-status { font-size: 0.75rem; color: var(--text-muted); text-align: right; }
+  .ws-connected { color: #10b981; }
+  .ws-disconnected { color: #ef4444; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+  <div class="chat-header">
+    <h1>💬 Catch Me Up</h1>
+    <p>Ask about any Indian news topic. AI searches in real-time + stored articles.</p>
+  </div>
+
+  <div class="suggested-chips">
+    <span class="chip" onclick="sendMessage('Catch me up on Budget 2026')">💰 Budget 2026</span>
+    <span class="chip" onclick="sendMessage('Latest IPL 2026 updates')">🏏 IPL 2026</span>
+    <span class="chip" onclick="sendMessage('What is happening in Indian tech startups?')">🚀 Tech Startups</span>
+    <span class="chip" onclick="sendMessage('India stock market this week')">📈 Stock Market</span>
+    <span class="chip" onclick="sendMessage('Indian politics latest news')">🗳️ Politics</span>
+    <span class="chip" onclick="sendMessage('Reliance Industries latest news')">🏢 Reliance</span>
+  </div>
+
+  <div class="chat-history" id="chatHistory">
+    <div style="text-align:center; color:var(--text-muted); font-size:0.85rem; padding:2rem 0;">
+      Ask me anything about Indian news! I'll check stored articles and search live if needed. 🇮🇳
+    </div>
+  </div>
+
+  <div class="ws-status" id="wsStatus">Connecting…</div>
+
+  <div class="chat-input-bar">
+    <input type="text" id="chatInput" placeholder="e.g. What happened with Adani this week?" maxlength="300"/>
+    <button id="sendBtn" onclick="sendMessage()">Send ➤</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const USER_ID = "{{ user._id if user else 'anonymous' }}";
+let ws = null;
+let reconnectDelay = 1000;
+let isWaiting = false;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/chat/${USER_ID}`);
+
+  ws.onopen = () => {
+    document.getElementById('wsStatus').innerHTML = '<span class="ws-connected">● Connected</span>';
+    reconnectDelay = 1000;
+  };
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    removeThinking();
+    isWaiting = false;
+    document.getElementById('sendBtn').disabled = false;
+
+    if (msg.type === 'response') {
+      appendBotResponse(msg.data);
+    } else if (msg.type === 'thinking') {
+      appendThinking(msg.message);
+    } else if (msg.type === 'error') {
+      appendBotError(msg.message);
+    }
+  };
+
+  ws.onclose = () => {
+    document.getElementById('wsStatus').innerHTML = '<span class="ws-disconnected">● Disconnected — reconnecting…</span>';
+    setTimeout(() => {
+      reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+      connect();
+    }, reconnectDelay);
+  };
+
+  ws.onerror = () => ws.close();
+}
+
+function sendMessage(text) {
+  const input = document.getElementById('chatInput');
+  const message = text || input.value.trim();
+  if (!message || isWaiting) return;
+
+  appendUserMessage(message);
+  input.value = '';
+  isWaiting = true;
+  document.getElementById('sendBtn').disabled = true;
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ message }));
+    appendThinking('Searching news sources…');
+  } else {
+    // REST fallback
+    fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, user_id: USER_ID }),
+    })
+    .then(r => r.json())
+    .then(data => {
+      removeThinking();
+      appendBotResponse(data);
+      isWaiting = false;
+      document.getElementById('sendBtn').disabled = false;
+    })
+    .catch(err => {
+      removeThinking();
+      appendBotError(err.message);
+      isWaiting = false;
+      document.getElementById('sendBtn').disabled = false;
+    });
+  }
+}
+
+function appendUserMessage(text) {
+  const div = document.createElement('div');
+  div.className = 'chat-message';
+  div.innerHTML = `<div class="user-bubble">${escapeHtml(text)}</div>`;
+  document.getElementById('chatHistory').appendChild(div);
+  scrollBottom();
+}
+
+function appendThinking(msg) {
+  removeThinking();
+  const div = document.createElement('div');
+  div.id = 'thinkingIndicator';
+  div.className = 'thinking-indicator';
+  div.innerHTML = `<div class="dot-anim"><span></span><span></span><span></span></div> ${escapeHtml(msg)}`;
+  document.getElementById('chatHistory').appendChild(div);
+  scrollBottom();
+}
+
+function removeThinking() {
+  const el = document.getElementById('thinkingIndicator');
+  if (el) el.remove();
+}
+
+function appendBotResponse(data) {
+  const div = document.createElement('div');
+  div.className = 'chat-message';
+
+  const sentimentClass = s => s === 'positive' ? 's-positive' : s === 'negative' ? 's-negative' : 's-neutral';
+
+  const timelineHtml = (data.timeline || []).map(t => `
+    <div class="timeline-item">
+      <span class="sentiment-dot ${sentimentClass(t.sentiment)}"></span>
+      <span class="timeline-date">${escapeHtml(t.date || '')}</span>
+      <span class="timeline-headline">${escapeHtml(t.headline || '')}</span>
+    </div>
+  `).join('');
+
+  const sourcesHtml = (data.sources || []).map(s =>
+    `<span class="source-tag">${escapeHtml(s)}</span>`
+  ).join('');
+
+  const metaHtml = data._meta
+    ? `<div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.5rem;">
+        📚 ${data._meta.chroma_count} stored · ${data._meta.used_live_search ? '🌐 Live search used' : '✅ From stored articles'}
+       </div>`
+    : '';
+
+  div.innerHTML = `
+    <div class="bot-response">
+      <div class="response-topic">📰 ${escapeHtml(data.topic || 'News Update')}</div>
+      ${data.summary ? `<div class="response-summary">${escapeHtml(data.summary)}</div>` : ''}
+      ${timelineHtml ? `<div class="timeline-list">${timelineHtml}</div>` : ''}
+      ${sourcesHtml ? `<div class="response-sources">Sources: ${sourcesHtml}</div>` : ''}
+      ${metaHtml}
+    </div>
+  `;
+  document.getElementById('chatHistory').appendChild(div);
+  scrollBottom();
+}
+
+function appendBotError(msg) {
+  const div = document.createElement('div');
+  div.innerHTML = `<div style="color:#ef4444;font-size:0.85rem;padding:0.5rem;">⚠️ ${escapeHtml(msg)}</div>`;
+  document.getElementById('chatHistory').appendChild(div);
+  scrollBottom();
+}
+
+function scrollBottom() {
+  const h = document.getElementById('chatHistory');
+  h.scrollTop = h.scrollHeight;
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Enter key to send
+document.getElementById('chatInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendMessage();
+});
+
+connect();
+</script>
+{% endblock %}

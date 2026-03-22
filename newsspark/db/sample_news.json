@@ -1,0 +1,35 @@
+[
+  {
+    "title": "Reliance Industries Announces Major Investment in AI and Green Energy",
+    "description": "Mukesh Ambani-led Reliance Industries has announced a $10 billion investment in developing local AI models and expanding its green energy footprint in India.",
+    "url": "https://example.com/reliance-ai",
+    "source_name": "Economic Times",
+    "category": "business",
+    "content": "Reliance Industries is poised to lead India's AI revolution by investing heavily in data centers and local-language LLMs. The initiative aims to provide accessible AI tools to millions of small businesses across the country...",
+    "published_at": "2026-03-22T10:00:00Z",
+    "url_to_image": "https://images.unsplash.com/photo-1485827404703-89b55fcc595e",
+    "story_cluster_id": "r-ai-123"
+  },
+  {
+    "title": "ISRO Successfully Launches Next-Gen Communication Satellite",
+    "description": "The Indian Space Research Organisation (ISRO) successfully placed the GSAT-N20 satellite into orbit, enhancing high-speed connectivity across the Indian subcontinent.",
+    "url": "https://example.com/isro-launch",
+    "source_name": "The Hindu",
+    "category": "technology",
+    "content": "The launch from Sriharikota marks a significant milestone for ISRO as it moves towards more frequent commercial missions. The satellite will provide dedicated capacity for smart cities and remote communication...",
+    "published_at": "2026-03-22T12:30:00Z",
+    "url_to_image": "https://images.unsplash.com/photo-1451187580459-43490279c0fa",
+    "story_cluster_id": "isro-789"
+  },
+  {
+    "title": "India Wins Thrilling T20 Match Against Australia",
+    "description": "A last-ball boundary secured a 3-wicket victory for India in the final match of the series, sending the home crowd at Eden Gardens into a frenzy.",
+    "url": "https://example.com/india-win",
+    "source_name": "SportsStar",
+    "category": "sports",
+    "content": "In a match that swung back and forth, the Indian middle order held their nerve under intense pressure. The victory clinches the series 3-2 for the home side...",
+    "published_at": "2026-03-22T18:45:00Z",
+    "url_to_image": "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e",
+    "story_cluster_id": "cricket-456"
+  }
+]

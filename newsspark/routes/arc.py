@@ -56,8 +56,9 @@ async def arc_json(
     request: Request,
     user: dict = Depends(get_current_user),
 ):
+    force_refresh = request.query_params.get("refresh") == "true"
     arc = await get_story_arc(topic)
-    if not arc:
+    if not arc or force_refresh:
         arc = await build_arc_for_topic(topic)
     if not arc:
         raise HTTPException(status_code=404, detail="No arc data for this topic")

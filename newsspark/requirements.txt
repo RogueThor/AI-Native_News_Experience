@@ -1,8 +1,17 @@
 fastapi
-uvicorn
+uvicorn[standard]
 python-dotenv
 groq
 langgraph
+langchain
+langchain-groq
+langchain-chroma
+langchain-huggingface
+langchain-community
+langsmith
+langchain-core
+chromadb
+sentence-transformers
 motor
 aiosqlite
 httpx
@@ -13,3 +22,7 @@ pydantic
 jinja2
 python-multipart
 itsdangerous
+feedparser
+pygooglenews
+duckduckgo-search
+websockets

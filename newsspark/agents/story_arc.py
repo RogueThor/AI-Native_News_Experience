@@ -33,14 +33,32 @@ def _load_prompt() -> str:
 
 def _build_arc_sync(groq_client: Groq, articles_text: str) -> dict:
     """Synchronous Groq call."""
-    template = _load_prompt()
-    prompt = template.replace("{articles_text}", articles_text)
+    prompt = f"""You are a senior news editor for an Indian news platform.
+Given the following list of news articles from a potential cluster, perform these tasks:
+1. Determine the main cohesive "Story Arc" or "Topic Name" (e.g., "US-Iran Escalation", "Q3 Earnings Season").
+2. Identify which article headlines are TRULY relevant to this specific narrative.
+3. List key players mentioned in the relevant articles.
+4. Provide a "What to watch next" prediction.
+
+ARTICLES:
+{articles_text}
+
+Return ONLY a JSON object:
+{{
+  "topic_name": "human readable topic name",
+  "relevant_headlines": ["headline 1", "headline 2"],
+  "key_players": ["name 1", "name 2"],
+  "what_to_watch_next": "one sentence prediction"
+}}
+
+Strictly filter out articles that are unrelated to the main topic (e.g. don't mix Bollywood with Politics).
+Only return valid JSON, no explanation."""
     try:
         resp = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=512,
+            temperature=0.1,
+            max_tokens=1000,
         )
         raw = resp.choices[0].message.content.strip()
         if raw.startswith("```"):
@@ -76,23 +94,32 @@ async def build_arc_for_topic(topic: str) -> dict:
         None, _build_arc_sync, groq_client, articles_text
     )
 
-    # Build timeline from articles (no LLM)
+    # Filter timeline and sentiment_trend based on relevant_headlines
+    relevant_headlines = set(llm_result.get("relevant_headlines", []))
+    
     timeline = []
-    for a in sorted(articles, key=lambda x: x.get("published_at", "")):
-        timeline.append({
-            "date": a.get("published_at", "")[:10],
-            "headline": a.get("title", ""),
-            "sentiment": a.get("sentiment", "neutral"),
-        })
-
-    # Build sentiment_trend
     sentiment_trend = []
-    for a in sorted(articles, key=lambda x: x.get("published_at", "")):
-        score = _SENTIMENT_SCORE.get(a.get("sentiment", "neutral"), 0.0)
-        sentiment_trend.append({
-            "date": a.get("published_at", "")[:10],
-            "score": score,
-        })
+    
+    # Sort articles by date
+    sorted_articles = sorted(articles, key=lambda x: x.get("published_at", ""))
+    
+    for a in sorted_articles:
+        title = a.get("title", "")
+        # Fuzzy match or exact match check
+        is_relevant = any(rh.lower() in title.lower() or title.lower() in rh.lower() for rh in relevant_headlines)
+        
+        if is_relevant or not relevant_headlines: # Fallback to all if LLM fails to provide list
+            timeline.append({
+                "date": a.get("published_at", "")[:10],
+                "headline": title,
+                "sentiment": a.get("sentiment", "neutral"),
+            })
+            
+            score = _SENTIMENT_SCORE.get(a.get("sentiment", "neutral"), 0.0)
+            sentiment_trend.append({
+                "date": a.get("published_at", "")[:10],
+                "score": score,
+            })
 
     arc = {
         "_id": topic,

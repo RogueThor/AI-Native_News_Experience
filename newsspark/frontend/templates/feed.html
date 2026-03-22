@@ -5,16 +5,19 @@
 {% block content %}
 <div class="container">
   <div class="page-header">
-    <h1>Your News Feed</h1>
-    <p>Personalised business news for <strong id="displayRole">{{ user.role | title }}</strong> · <span id="displayName">{{ user.name }}</span></p>
+    <h1 id="feedTitle">Your Top Stories</h1>
+    <p id="feedSubtitle">Personalised news curated for <strong id="displayName">{{ user.name }}</strong></p>
   </div>
 
-  <!-- Role tabs -->
-  <div class="role-tabs" id="roleTabs">
-    <button class="role-tab {% if user.role == 'investor' %}active{% endif %}" onclick="switchRole('investor')">💼 Investor</button>
-    <button class="role-tab {% if user.role == 'student'  %}active{% endif %}" onclick="switchRole('student')">🎓 Student</button>
-    <button class="role-tab {% if user.role == 'startup'  %}active{% endif %}" onclick="switchRole('startup')">🚀 Startup</button>
-    <button class="role-tab {% if user.role == 'salaried' %}active{% endif %}" onclick="switchRole('salaried')">👩‍💻 Salaried</button>
+  <!-- Category tabs -->
+  <div class="role-tabs" id="categoryTabs" style="flex-wrap:nowrap; overflow-x:auto; gap:0.6rem; padding-bottom:10px; -webkit-overflow-scrolling:touch; margin-bottom:1rem;">
+    <button class="role-tab active" onclick="switchCategory('top')" style="white-space:nowrap;">🌟 Top Stories</button>
+    <button class="role-tab" onclick="switchCategory('business')" style="white-space:nowrap;">💼 Business</button>
+    <button class="role-tab" onclick="switchCategory('technology')" style="white-space:nowrap;">💻 Technology</button>
+    <button class="role-tab" onclick="switchCategory('politics')" style="white-space:nowrap;">🏛️ Politics</button>
+    <button class="role-tab" onclick="switchCategory('sports')" style="white-space:nowrap;">🏏 Sports</button>
+    <button class="role-tab" onclick="switchCategory('entertainment')" style="white-space:nowrap;">🎬 Entertainment</button>
+    <button class="role-tab" onclick="switchCategory('science')" style="white-space:nowrap;">🔬 Science</button>
   </div>
 
   <!-- Feed grid -->
@@ -224,13 +227,56 @@
     policy: '📋', rbi: '🏦', other: '📰'
   };
 
+  function stripHtml(html) {
+    if (!html) return '';
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   let feedData = [];
+  let currentCategory = 'top';
+
+  async function switchCategory(cat) {
+    currentCategory = cat;
+    
+    // Update active tab UI
+    document.querySelectorAll('#categoryTabs .role-tab').forEach(btn => {
+      btn.classList.remove('active');
+      if (btn.getAttribute('onclick').includes(`'${cat}'`)) {
+        btn.classList.add('active');
+        document.getElementById('feedTitle').textContent = btn.textContent.replace(/[^\w\s]/g, '').trim() + ' News';
+      }
+    });
+
+    if (cat === 'top') {
+      document.getElementById('feedTitle').textContent = 'Your Top Stories';
+      document.getElementById('feedSubtitle').textContent = 'Personalised news curated for {{ user.name }}';
+    } else {
+      document.getElementById('feedSubtitle').textContent = 'Latest updates from India and around the world';
+    }
+
+    await loadFeed();
+  }
 
   async function loadFeed() {
     const grid = document.getElementById('feedGrid');
     grid.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
     try {
-      const resp = await fetch('/news/feed');
+      const url = currentCategory === 'top' 
+        ? '/news/feed?t=' + new Date().getTime()
+        : `/news/feed?category=${currentCategory}&t=` + new Date().getTime();
+        
+      const resp = await fetch(url);
       if (!resp.ok) throw new Error('Failed to load feed');
       const data = await resp.json();
       feedData = data.feed || [];
@@ -267,7 +313,7 @@
       const catCls   = 'badge badge-accent';
       const artId    = a._id || '';
       const title    = escapeHtml(a.title || '');
-      const desc     = escapeHtml(a.description || '');
+      const desc     = escapeHtml(stripHtml(a.description || ''));
 
       return `<div class="card news-card" onclick="openArticle('${escapeHtml(a.url)}')">
         <div class="news-card-media">
@@ -516,7 +562,11 @@
     if (e.target === this) closeReporter();
   });
 
-  /* ── Role switching ──────────────────────────── */
+  function stripHtml(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return doc.body.textContent || "";
+  }
+
   async function switchRole(role) {
     const fd = new FormData();
     fd.append('role', role);
@@ -554,7 +604,118 @@
       .replace(/'/g, '&#039;');
   }
 
+  // ── Interaction tracking ─────────────────────────────────────────────
+  async function trackInteraction(articleId, action) {
+    if (!articleId) return;
+    try {
+      await fetch('/interaction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ article_id: articleId, action }),
+      });
+    } catch (e) { /* silent */ }
+  }
+
+  // Patch openArticle to track reads
+  const _origOpenArticle = openArticle;
+  function openArticle(url) {
+    // Find article by URL to get its ID
+    const art = feedData.find(a => a.url === url);
+    if (art && art._id) trackInteraction(art._id, 'read');
+    if (url && url !== 'undefined') window.open(url, '_blank', 'noopener');
+  }
+
+  // ── WebSocket real-time feed ──────────────────────────────────────────
+  const WS_USER_ID = "{{ user._id if user else 'anonymous' }}";
+  let feedWs = null;
+  let wsReconnectDelay = 1000;
+
+  function connectFeedWs() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    feedWs = new WebSocket(`${proto}://${location.host}/ws/feed/${WS_USER_ID}`);
+
+    feedWs.onopen = () => {
+      wsReconnectDelay = 1000;
+    };
+
+    feedWs.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'new_articles' && msg.articles && msg.articles.length > 0) {
+          prependNewArticles(msg.articles);
+          showToast(`🔔 ${msg.count} new articles added to your feed`);
+        }
+        // ignore 'ping'
+      } catch (e) { /* ignore */ }
+    };
+
+    feedWs.onclose = () => {
+      setTimeout(() => {
+        wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000);
+        connectFeedWs();
+      }, wsReconnectDelay);
+    };
+
+    feedWs.onerror = () => feedWs.close();
+  }
+
+  function prependNewArticles(articles) {
+    const grid = document.getElementById('feedGrid');
+    // Remove empty state if present
+    const emptyState = grid.querySelector('.empty-state');
+    if (emptyState) emptyState.remove();
+
+    // Build HTML for new articles
+    const newHtml = articles.map(a => {
+      const catIcon = CATEGORY_ICON[a.category] || '📰';
+      const imgHtml = a.image_url
+        ? `<img src="${escapeHtml(a.image_url)}" alt="${escapeHtml(a.title)}" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+           <div class="gif-placeholder" style="display:none;">${catIcon}</div>`
+        : `<div class="gif-placeholder">${catIcon}</div>`;
+      const dateStr  = a.published_at ? a.published_at.substring(0, 10) : '';
+      const sentCls  = `badge badge-${a.sentiment || 'neutral'}`;
+      const artId    = a._id || '';
+      const title    = escapeHtml(a.title || '');
+      const desc     = escapeHtml(stripHtml(a.description || a.content || ''));
+
+      return `<div class="card news-card" style="border:2px solid var(--accent);animation:fadeIn .5s ease;" onclick="openArticle('${escapeHtml(a.url || '')}')">
+        <div class="news-card-media">
+          ${imgHtml}
+          <div class="media-badges">
+            <span class="badge badge-accent">${catIcon} ${escapeHtml(a.category || 'news')}</span>
+            <span class="${sentCls}">${a.sentiment || 'neutral'}</span>
+            <span class="badge" style="background:var(--accent);color:#fff;font-size:0.65rem;">🔴 NEW</span>
+          </div>
+        </div>
+        <div class="news-card-body">
+          <div class="news-card-title">${title}</div>
+          <div class="news-card-desc">${desc}</div>
+          <div class="news-card-meta">
+            <span>📰 ${escapeHtml(a.source || a.source_name || '')}</span>
+            <span>·</span><span>🕐 ${dateStr}</span>
+            ${a.story_cluster_id ? `<span>·</span><a href="/arc/${encodeURIComponent(a.story_cluster_id)}" onclick="event.stopPropagation()" class="badge badge-muted">Story Arc →</a>` : ''}
+          </div>
+          <div class="news-card-footer">
+            <div class="lang-pills">
+              ${artId ? `<button class="lang-pill" onclick="event.stopPropagation(); openTranslation('${artId}','tamil')" title="Tamil">த</button>` : ''}
+              ${artId ? `<button class="lang-pill" onclick="event.stopPropagation(); openTranslation('${artId}','hindi')" title="Hindi">हि</button>` : ''}
+              ${artId ? `<button class="lang-pill reporter-pill" onclick="event.stopPropagation(); openReporter('${artId}')" title="AI Reporter">🎙️</button>` : ''}
+            </div>
+            <a class="read-more" href="${escapeHtml(a.url || '#')}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Read More →</a>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    // Prepend to grid
+    grid.insertAdjacentHTML('afterbegin', newHtml);
+
+    // Add new articles to feedData
+    feedData = [...articles, ...feedData];
+  }
+
   // Init
   loadFeed();
+  connectFeedWs();
 </script>
 {% endblock %}
