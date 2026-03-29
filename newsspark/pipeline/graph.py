@@ -74,7 +74,7 @@ def _route(state: NewsSparkState) -> str:
         return "briefing"
     if rt == "story_arc":
         return "story_arc"
-    return "fetch"  # default → full pipeline
+    return "fetch"  # default -> full pipeline
 
 
 # ── Build graph ───────────────────────────────────────────────────────────────
@@ -102,12 +102,12 @@ def build_graph() -> StateGraph:
         },
     )
 
-    # Feed pipeline: fetch → story_arc → personalize → END
+    # Feed pipeline: fetch -> story_arc -> personalize -> END
     builder.add_edge("fetch", "story_arc")
     builder.add_edge("story_arc", "personalize")
     builder.add_edge("personalize", END)
 
-    # Briefing pipeline: briefing → critic → END (Critic NEVER skipped)
+    # Briefing pipeline: briefing -> critic -> END (Critic NEVER skipped)
     builder.add_edge("briefing", "critic")
     builder.add_edge("critic", END)
 

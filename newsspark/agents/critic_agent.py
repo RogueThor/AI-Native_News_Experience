@@ -150,6 +150,10 @@ async def run_critic(state: dict) -> dict:
         print(f"[Critic] FAIL — corrections: {critic_result.get('corrections')}")
         corrected = critic_result.get("validated_output", text_to_validate)
 
+        if "No validated output" in (corrected or "") or len(corrected or "") < 100:
+            print("[Critic] Validated output is a failure message. Reverting to original text.")
+            corrected = text_to_validate + "\n\n*(Note: This briefing was generated dynamically but could not be strictly fact-checked against available mock sources.)*"
+
         # One retry: re-run briefing with corrected output as validated_output
         # (we don't re-invoke the full briefing to avoid LLM cost; critic's corrected output IS the retry)
         if briefing_text:

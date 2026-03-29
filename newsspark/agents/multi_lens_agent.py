@@ -45,10 +45,10 @@ def _call_groq_sync(groq_client: Groq, lens: str, article_text: str) -> tuple[st
     prompt = LENSES_PROMPTS[lens].replace("{article_text}", article_text[:1500])
     try:
         resp = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.6,
-            max_tokens=200,
+            temperature=0.3,
+            max_tokens=1500,
         )
         return lens, resp.choices[0].message.content.strip()
     except Exception as e:

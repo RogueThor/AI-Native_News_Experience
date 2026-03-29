@@ -35,8 +35,13 @@ async def login_post(request: Request, role: str = Form(...)):
     # Set session cookie
     request.session["user_id"] = user["user_id"]
 
-    response = RedirectResponse(url="/feed", status_code=303)
-    return response
+    # Return JSON for SPA or Redirect for traditional form
+    if request.headers.get("accept") == "application/json" or request.headers.get("content-type") == "application/json":
+        out = dict(user)
+        if "_id" in out: out["_id"] = str(out["_id"])
+        return out
+
+    return RedirectResponse(url="/feed", status_code=303)
 
 
 # ── Logout ────────────────────────────────────────────────────────────────────

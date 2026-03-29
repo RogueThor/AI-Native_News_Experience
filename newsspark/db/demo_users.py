@@ -93,7 +93,7 @@ INTEREST_CATEGORY_MAP = {
     "crime": "crime",
 }
 
-# Role → default interest categories
+# Role -> default interest categories
 ROLE_CATEGORIES = {
     "investor": ["business", "markets", "technology", "politics"],
     "student": ["education", "technology", "politics", "health"],

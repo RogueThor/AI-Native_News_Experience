@@ -19,6 +19,7 @@ EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 _chroma_client = None
 _collection = None
 _embeddings = None
+CHROMA_DISABLED = False
 
 
 def _get_embeddings():
@@ -37,7 +38,8 @@ def _get_embeddings():
 
 def init_chroma():
     """Initialize ChromaDB client and collection (synchronous — call at startup)."""
-    global _chroma_client, _collection
+    global _chroma_client, _collection, CHROMA_DISABLED
+    if CHROMA_DISABLED: return
     try:
         import chromadb
         os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
@@ -48,11 +50,13 @@ def init_chroma():
         )
         print(f"[ChromaDB] Initialized. Collection '{COLLECTION_NAME}' has {_collection.count()} docs.")
     except Exception as e:
-        print(f"[ChromaDB] Init error: {e}")
+        print(f"[ChromaDB] Init error: {e}. Disabling ChromaDB.")
+        CHROMA_DISABLED = True
 
 
 def get_collection():
-    global _collection
+    global _collection, CHROMA_DISABLED
+    if CHROMA_DISABLED: return None
     if _collection is None:
         init_chroma()
     return _collection
@@ -64,6 +68,8 @@ def ingest_article(doc: dict):
     doc must have: title, content (or description), url, category, sentiment,
                    source_name (or source), published_at, _id (MongoDB ObjectId)
     """
+    global CHROMA_DISABLED
+    if CHROMA_DISABLED: return
     try:
         collection = get_collection()
         if collection is None:

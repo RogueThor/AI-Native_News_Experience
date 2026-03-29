@@ -37,7 +37,34 @@ def _clean_content(raw_html: str) -> tuple[str, str | None]:
     return text, img_url
 
 
-# ── Groq batch classification ─────────────────────────────────────────────────
+# Maps any classifier output category to a valid UI category
+_CATEGORY_NORMALISE: dict[str, str] = {
+    "health":        "science",
+    "education":     "science",
+    "crime":         "politics",
+    "markets":       "business",
+    "startup":       "technology",
+    "rbi":           "business",
+    "budget":        "business",
+    "policy":        "politics",
+    "finance":       "business",
+    "economy":       "business",
+    "bollywood":     "entertainment",
+    "cricket":       "sports",
+    "ipl":           "sports",
+}
+
+VALID_CATEGORIES = frozenset([
+    "business", "technology", "sports", "entertainment",
+    "politics", "science", "other"
+])
+
+
+def _normalise_category(cat: str) -> str:
+    """Map any category to a valid UI category key."""
+    cat = (cat or "other").lower().strip()
+    cat = _CATEGORY_NORMALISE.get(cat, cat)
+    return cat if cat in VALID_CATEGORIES else "other"
 
 def _batch_classify_sync(groq_client: Groq, articles: list) -> list:
     """
@@ -53,34 +80,48 @@ def _batch_classify_sync(groq_client: Groq, articles: list) -> list:
 
     prompt = f"""You are a news classifier for Indian articles.
 For each article below, return a JSON array where each element has:
-- "category": one of business|technology|sports|entertainment|politics|health|education|crime|markets|startup|other
+- "category": STRICTLY one of: business|technology|sports|entertainment|politics|science|other
+  Rules: financial/economy/market → business, cricket/ipl/football → sports,
+  films/bollywood/celebs → entertainment, government/election/law → politics,
+  health/environment → science, AI/software/startup → technology.
 - "sentiment": one of positive|negative|neutral
+- "story_slug": a 2-3 word lowercased slug for the specific news story (e.g. "cricket-ipl-2024", "isro-launch"). 
+  Articles about the EXACT same news event MUST have the SAME slug!
 
 ARTICLES:
 {lines}
 
 Return ONLY a JSON array with {len(articles)} objects in order, no extra text.
-Example: [{{"category":"business","sentiment":"neutral"}}]"""
+Example: [{{"category":"business","sentiment":"neutral","story_slug":"stock-market-crash"}}]"""
 
     try:
         resp = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.1-8b-instant",  # 8b for bulk classification (saves 70b daily quota)
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=1000,
+            max_tokens=300,
         )
         raw = resp.choices[0].message.content.strip()
-        if "```" in raw:
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:].strip()
-        # Find first [ to strip any preamble
+        # Find the first '[' and last ']' to extract the JSON array
         start = raw.find("[")
-        if start != -1:
-            raw = raw[start:]
-        results = json.loads(raw)
+        end = raw.rfind("]")
+        if start != -1 and end != -1:
+            raw = raw[start:end+1]
+        
+        try:
+            results = json.loads(raw)
+        except json.JSONDecodeError:
+            # Try removing common junk like trailing commas before ]
+            import re
+            raw = re.sub(r",\s*\]", "]", raw)
+            results = json.loads(raw)
+
         if not isinstance(results, list):
             return []
+        # Normalise categories to valid UI values
+        for r in results:
+            if isinstance(r, dict):
+                r["category"] = _normalise_category(r.get("category", "other"))
         return results
     except Exception as e:
         print(f"[Fetcher] Batch classify error: {e}")
@@ -202,14 +243,17 @@ async def run_fetcher(state: dict) -> dict:
 
         # ── 4. Classify RSS articles (those without category/sentiment) ────────
         groq_client = Groq(api_key=GROQ_API_KEY)
-        to_classify = [a for a in unique_articles if not a.get("category") or not a.get("sentiment")]
+        # Process any article that is missing category, sentiment, OR story_slug
+        to_classify = [a for a in unique_articles if not a.get("category") or not a.get("sentiment") or not a.get("story_slug")]
 
         loop = asyncio.get_event_loop()
+        # Process ALL articles now that we have unique slug logic
+        articles_to_process = to_classify
         batch_size = 10
-        classify_map = {}  # url_hash → classification
+        classify_map = {}
 
-        for i in range(0, len(to_classify), batch_size):
-            batch = to_classify[i: i + batch_size]
+        for i in range(0, len(articles_to_process), batch_size):
+            batch = articles_to_process[i: i + batch_size]
             classifications = await loop.run_in_executor(
                 None, _batch_classify_sync, groq_client, batch
             )
@@ -223,12 +267,53 @@ async def run_fetcher(state: dict) -> dict:
         for a in unique_articles:
             cls = classify_map.get(a.get("url_hash"), {})
             if cls.get("category") and not a.get("category"):
-                a["category"] = cls["category"]
+                a["category"] = _normalise_category(cls["category"])
             if cls.get("sentiment") and not a.get("sentiment"):
                 a["sentiment"] = cls["sentiment"]
-            # Defaults
-            a.setdefault("category", "other")
+            if cls.get("story_slug"):
+                a["story_slug"] = cls["story_slug"].strip().lower().replace(" ", "-")
+            
+            # Final normalisation
+            a["category"] = _normalise_category(a.get("category", "other"))
             a.setdefault("sentiment", "neutral")
+            
+            # If still no slug, use a short hash of title to keep it unique but stable
+            if not a.get("story_slug") or a["story_slug"] == "general":
+                import hashlib
+                title_hash = hashlib.md5(a.get("title", "").encode()).hexdigest()[:8]
+                a["story_slug"] = f"news-{title_hash}"
+
+            a["story_cluster_id"] = f"{a.get('category', 'other')}_{a['story_slug']}"
+
+        # ── 4.5. Fuzzy Match Titles to Merge LLM Slugs Across Batches ────────
+        from difflib import SequenceMatcher
+        def similar(a, b):
+            return SequenceMatcher(None, a, b).ratio()
+        
+        for i in range(len(unique_articles)):
+            for j in range(i+1, len(unique_articles)):
+                if similar(unique_articles[i]["title"], unique_articles[j]["title"]) > 0.45:
+                    slug1 = unique_articles[i].get("story_slug")
+                    slug2 = unique_articles[j].get("story_slug")
+                    
+                    if slug1 and not slug1.startswith("news-"):
+                        unique_articles[j]["story_slug"] = slug1
+                        unique_articles[j]["story_cluster_id"] = f"{unique_articles[j].get('category', 'other')}_{slug1}"
+                    elif slug2 and not slug2.startswith("news-"):
+                        unique_articles[i]["story_slug"] = slug2
+                        unique_articles[i]["story_cluster_id"] = f"{unique_articles[i].get('category', 'other')}_{slug2}"
+
+        # ── 4.6. Clear Story Cluster ID for Singletons ───────────────────────
+        cluster_counts = {}
+        for a in unique_articles:
+            cid = a.get("story_cluster_id")
+            if cid:
+                cluster_counts[cid] = cluster_counts.get(cid, 0) + 1
+        
+        for a in unique_articles:
+            cid = a.get("story_cluster_id")
+            if cid and cluster_counts[cid] < 2:
+                a["story_cluster_id"] = None
 
         # ── 5. Save to MongoDB + ChromaDB ────────────────────────────────────
         async def _save_article(article: dict):
@@ -238,6 +323,7 @@ async def run_fetcher(state: dict) -> dict:
                 text, extracted_img = _clean_content(raw_desc)
                 
                 doc = {
+                    "url_hash": article.get("url_hash", ""),  # crucial for stable mock _id
                     "title": article.get("title", ""),
                     "url": article.get("url", ""),
                     "content": text[:5000],
@@ -245,7 +331,9 @@ async def run_fetcher(state: dict) -> dict:
                     "description": text[:500],
                     "category": article.get("category", "other"),
                     "sentiment": article.get("sentiment", "neutral"),
-                    "story_cluster_id": f"{article.get('category', 'other')}_{datetime.utcnow().strftime('%Y%m%d')}",
+                    "story_slug": article.get("story_slug", "general"),
+                    # REMOVED date from ID to allow multi-day arcs!
+                    "story_cluster_id": f"{article.get('category', 'other')}_{article.get('story_slug', 'general').strip() or 'general'}",
                     "source": article.get("source_name", "Unknown"),
                     "source_name": article.get("source_name", "Unknown"),
                     "published_at": article.get("published_at", datetime.utcnow().isoformat()),

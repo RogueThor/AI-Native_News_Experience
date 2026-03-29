@@ -55,10 +55,10 @@ Strictly filter out articles that are unrelated to the main topic (e.g. don't mi
 Only return valid JSON, no explanation."""
     try:
         resp = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=__import__('agents.model_config', fromlist=['QUALITY_MODEL']).QUALITY_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=1000,
+            temperature=0.2,
+            max_tokens=2048,
         )
         raw = resp.choices[0].message.content.strip()
         if raw.startswith("```"):

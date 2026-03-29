@@ -1,7 +1,7 @@
 """
 main.py — NewsSpark FastAPI application entry point.
 Handles startup (MongoDB, SQLite, ChromaDB, demo users, scheduler),
-session middleware, static files, templates, and router includes.
+session middleware, static files, and router includes.
 """
 
 import os
@@ -15,14 +15,12 @@ if sys.platform == 'win32':
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
-from db.mongo import init_mongo, get_db
 from db.sqlite import init_sqlite
 from db.demo_users import DEMO_USERS
 from db.mongo import upsert_user
@@ -40,59 +38,65 @@ scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Startup ──
-    print("[Startup] LifeSpan started.")
+    import traceback
     try:
+        # 1. Initialize DBs
         from db.mongo import init_mongo_sync
         await asyncio.to_thread(init_mongo_sync)
-    except Exception as e:
-        print(f"[Lifespan] MongoDB init error: {e}")
-
-    try:
+        
         from db.sqlite import init_sqlite
         await init_sqlite()
-    except Exception as e:
-        print(f"[Lifespan] SQLite init error: {e}")
-
-    # Upsert all demo users into MongoDB (if connected)
-    try:
-        from db.demo_users import DEMO_USERS
-        from db.mongo import upsert_user
-        for user_data in DEMO_USERS.values():
-            await upsert_user(user_data)
-        print("[Startup] Demo users upserted.")
-    except Exception as e:
-        print(f"[Startup] Demo user upsert skip: {e}")
-
-    # Initialize ChromaDB
-    try:
-        from db.chroma import init_chroma
-        await asyncio.to_thread(init_chroma)
-        print("[Startup] ChromaDB initialized.")
-    except Exception as e:
-        print(f"[Startup] ChromaDB error: {e}")
-
-    # Start the fetcher agent
-    try:
-        from agents.fetcher_agent import scheduled_fetch
-        asyncio.create_task(scheduled_fetch())
-        print("[Startup] Fetcher task started.")
         
-        if not scheduler.running:
-            scheduler.add_job(scheduled_fetch, "interval", minutes=30)
-            scheduler.start()
-            print("[Scheduler] Started.")
+        # Upsert all demo users into MongoDB (if connected)
+        try:
+            from db.demo_users import DEMO_USERS
+            from db.mongo import upsert_user
+            for user_data in DEMO_USERS.values():
+                await upsert_user(user_data)
+            print("[Startup] Demo users upserted.")
+        except Exception as e:
+            print(f"[Startup] Demo user upsert skip: {e}")
+
+        # Initialize ChromaDB (CAUTION: can panic on some Windows setups)
+        try:
+            from db.chroma import init_chroma
+            import db.chroma as chroma_module
+            # init_chroma is known to cause Rust panics on certain Windows environments.
+            # We skip it and explicitly disable ChromaDB to prevent lazy init.
+            # await asyncio.to_thread(init_chroma) 
+            chroma_module.CHROMA_DISABLED = True
+            print("[Startup] ChromaDB explicitly DISABLED (avoiding Rust panic on Windows).")
+        except Exception as e:
+            print(f"[Startup] ChromaDB error: {e}")
+
+        # Start the fetcher agent
+        try:
+            from agents.fetcher_agent import scheduled_fetch
+            asyncio.create_task(scheduled_fetch())
+            print("[Startup] Fetcher task started.")
+            
+            if not scheduler.running:
+                scheduler.add_job(scheduled_fetch, "interval", minutes=30)
+                scheduler.start()
+                print("[Scheduler] Started.")
+        except Exception as e:
+            print(f"[Startup] Scheduler/Fetcher error: {e}")
+
+        yield
+
     except Exception as e:
-        print(f"[Startup] Scheduler/Fetcher error: {e}")
-
-    yield
-
-    # ── Shutdown ──
-    print("[Shutdown] LifeSpan ending.")
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
-    print("[Shutdown] Done.")
-    print("[Shutdown] Scheduler stopped.")
+        print(f"!!! FATAL LIFESPAN ERROR !!!: {e}")
+        traceback.print_exc()
+        raise e
+    finally:
+        # Cleanup
+        try:
+            from db.mongo import close_mongo
+            await close_mongo()
+        except: pass
+        if scheduler.running:
+            scheduler.shutdown()
+        print("[Shutdown] Closed connections.")
 
 
 # ── App init ──────────────────────────────────────────────────────────────────
@@ -104,26 +108,23 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Session middleware
+# ── Middleware & Routes ───────────────────────────────────────────────────────
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
     session_cookie="newsspark_session",
-    max_age=86400,  # 1 day
-    https_only=False,
+    max_age=3600 * 24 * 7,
 )
 
-# Static files
-app.mount(
-    "/static",
-    StaticFiles(directory=os.path.join(BASE_DIR, "frontend", "static")),
-    name="static",
-)
-
-# Templates
-templates = Jinja2Templates(
-    directory=os.path.join(BASE_DIR, "frontend", "templates")
-)
+# Static files from the legacy frontend (GIF, etc.)
+_static_dir = os.path.join(BASE_DIR, "frontend", "static")
+if os.path.isdir(_static_dir):
+    app.mount(
+        "/static",
+        StaticFiles(directory=_static_dir),
+        name="static",
+    )
 
 
 # ── Root redirect ─────────────────────────────────────────────────────────────
@@ -146,6 +147,11 @@ app.include_router(user_router)
 app.include_router(news_router)
 app.include_router(arc_router)
 
+@app.get("/health")
+async def health():
+    return {"status": "ok", "mock_mode": os.getenv("MOCK_MODE", "auto")}
+
+
 
 # ── Include new routers ───────────────────────────────────────────────────────
 
@@ -160,22 +166,10 @@ app.include_router(chat_router)
 app.include_router(users_router)
 
 
-# ── Chat page ─────────────────────────────────────────────────────────────────
-
-@app.get("/chat")
-async def chat_page(request: Request):
-    user_id = request.session.get("user_id")
-    if not user_id:
-        return RedirectResponse(url="/login")
-    from db.mongo import get_user_by_id
-    user = await get_user_by_id(user_id)
-    return templates.TemplateResponse("chat.html", {"request": request, "user": user})
-
-
 # ── Dev entry point ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn
     # Passing the app object directly (not string) and disabling reload 
     # provides the most stable SSL environment on Windows/Python 3.13
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)

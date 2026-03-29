@@ -28,6 +28,21 @@ def _load_prompt(filename: str) -> str:
     return _prompt_cache[filename]
 
 
+def _is_paywall(text: str) -> bool:
+    """Detect NewsData.io (and similar) paywall placeholder text."""
+    if not text:
+        return True
+    paywall_phrases = [
+        "only available in",
+        "available in paid",
+        "paid plan",
+        "upgrade to",
+        "subscribe to",
+    ]
+    lower = text.lower()
+    return any(p in lower for p in paywall_phrases)
+
+
 def _adapt_sync(groq_client: Groq, article_text: str, language: str) -> str:
     """Synchronous Groq call – runs in executor."""
     if language == "tamil":
@@ -40,7 +55,7 @@ def _adapt_sync(groq_client: Groq, article_text: str, language: str) -> str:
     prompt = template.replace("{article_text}", article_text)
     try:
         resp = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=__import__('agents.model_config', fromlist=['QUALITY_MODEL']).QUALITY_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
             max_tokens=1024,
@@ -78,6 +93,13 @@ async def run_vernacular(state: dict) -> dict:
         return {**state, "translated_text": "[Article not found]"}
 
     article_text = article.get("raw_text") or article.get("description") or article.get("title", "")
+
+    # Strip paywall placeholder text that NewsData.io injects
+    if _is_paywall(article_text):
+        # Try other fields
+        article_text = article.get("title", "")
+        if not article_text:
+            return {**state, "translated_text": "[Content not available for translation]"}
 
     groq_client = Groq(api_key=GROQ_API_KEY)
     loop = asyncio.get_event_loop()

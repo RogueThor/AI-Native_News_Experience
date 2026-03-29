@@ -12,6 +12,23 @@ from langsmith import traceable
 from db.mongo import get_articles_by_category, get_all_recent_articles
 from db.sqlite import log_agent
 
+# Maps briefing topic names → stored article categories in MongoDB
+TOPIC_TO_CATEGORIES: dict[str, list[str]] = {
+    "markets":   ["business", "technology"],
+    "budget":    ["business", "politics"],
+    "startup":   ["technology", "business"],
+    "policy":    ["politics", "business"],
+    "rbi":       ["business"],
+    "other":     ["other", "business", "technology", "politics"],
+    # Feed UI categories (pass-through)
+    "business":      ["business"],
+    "technology":    ["technology"],
+    "politics":      ["politics"],
+    "sports":        ["sports"],
+    "entertainment": ["entertainment"],
+    "science":       ["science"],
+}
+
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
@@ -49,7 +66,7 @@ def _call_groq_sync(groq_client: Groq, messages: list, max_tokens: int = 1024) -
     """Synchronous Groq call — runs in executor."""
     try:
         resp = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=__import__('agents.model_config', fromlist=['QUALITY_MODEL']).QUALITY_MODEL,
             messages=messages,
             temperature=0.4,
             max_tokens=max_tokens,
@@ -70,10 +87,14 @@ async def run_briefing(state: dict) -> dict:
     request_type: str = state.get("request_type", "briefing")
     user_id: str = state.get("user_id", "anonymous")
 
-    # Fetch relevant articles
-    articles = await get_articles_by_category([topic], limit=5)
+    # Map the briefing topic to actual stored article categories
+    categories = TOPIC_TO_CATEGORIES.get(topic, [topic])
+    articles = await get_articles_by_category(categories, limit=8)
     if not articles:
-        articles = await get_all_recent_articles(limit=5)
+        # Wider fallback — get recent articles from all business/tech/politics categories
+        articles = await get_articles_by_category(["business", "technology", "politics"], limit=8)
+    if not articles:
+        articles = await get_all_recent_articles(limit=8)
     context = _format_articles(articles)
 
     groq_client = Groq(api_key=GROQ_API_KEY)

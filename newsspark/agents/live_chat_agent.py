@@ -26,7 +26,7 @@ You have access to two information sources:
 
 DECISION LOGIC:
 - First search ChromaDB for stored articles on the topic
-- If all results are older than 24 hours OR fewer than 3 relevant results → use DuckDuckGo
+- If all results are older than 24 hours OR fewer than 3 relevant results -> use DuckDuckGo
 - Combine both sources if needed for comprehensive answer
 
 RESPONSE FORMAT — You MUST always respond with this exact JSON structure:
@@ -110,10 +110,10 @@ def _call_groq_chat_sync(groq_client: Groq, messages: list) -> str:
     """Synchronous Groq call for chat — runs in executor."""
     try:
         resp = groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=__import__('agents.model_config', fromlist=['QUALITY_MODEL']).QUALITY_MODEL,
             messages=messages,
-            temperature=0.4,
-            max_tokens=800,
+            temperature=0.7,
+            max_tokens=1024,
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
@@ -130,7 +130,7 @@ async def run_live_chat(user_message: str, user_id: str = "anonymous") -> dict:
     """
     ReAct-style live chat agent.
     1. Search ChromaDB
-    2. Check freshness → DuckDuckGo if stale/insufficient
+    2. Check freshness -> DuckDuckGo if stale/insufficient
     3. Combine sources and generate structured response
     """
     loop = asyncio.get_event_loop()
@@ -141,10 +141,10 @@ async def run_live_chat(user_message: str, user_id: str = "anonymous") -> dict:
 
     # Step 2: Decide if we need live search
     if len(chroma_results) < 3:
-        print(f"[LiveChat] ChromaDB returned {len(chroma_results)} results → using DuckDuckGo")
+        print(f"[LiveChat] ChromaDB returned {len(chroma_results)} results -> using DuckDuckGo")
         use_ddg = True
     elif not _are_results_fresh(chroma_results, hours=24):
-        print("[LiveChat] Results are stale → using DuckDuckGo")
+        print("[LiveChat] Results are stale -> using DuckDuckGo")
         use_ddg = True
 
     ddg_results = []

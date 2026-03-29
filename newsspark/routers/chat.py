@@ -73,8 +73,9 @@ async def ws_chat(websocket: WebSocket, user_id: str):
 # ── REST fallback ─────────────────────────────────────────────────────────────
 
 @router.post("/chat")
+@router.post("/api/chat")
 async def chat_rest(request: Request, user: dict = Depends(get_current_user)):
-    """REST fallback for chat."""
+    """REST fallback for chat (available at both /chat and /api/chat)."""
     from agents.live_chat_agent import run_live_chat
 
     body = await request.json()

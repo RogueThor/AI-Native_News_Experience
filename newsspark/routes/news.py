@@ -1,18 +1,15 @@
 """
-routes/news.py – Feed, Translation, Briefing, and Q&A endpoints.
+routes/news.py – Feed JSON API, Translation, Briefing, and Q&A endpoints.
+Note: HTML page routes for /feed, /chat, /briefing are handled by the React SPA.
 """
 
 import os
 from fastapi import APIRouter, Request, Depends, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from db.mongo import get_user_by_id
 
 router = APIRouter()
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "frontend", "templates"))
 
 
 # ── Auth dependency ───────────────────────────────────────────────────────────
@@ -27,15 +24,6 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=307, headers={"Location": "/login"})
     return user
 
-
-# ── Feed page ─────────────────────────────────────────────────────────────────
-
-@router.get("/feed", response_class=HTMLResponse)
-async def feed_page(request: Request, user: dict = Depends(get_current_user)):
-    return templates.TemplateResponse(
-        "feed.html",
-        {"request": request, "user": user}
-    )
 
 
 # ── Feed JSON API ─────────────────────────────────────────────────────────────
@@ -98,7 +86,7 @@ async def translate_article(
 
 # ── Arc page redirect ─────────────────────────────────────────────────────────
 
-@router.get("/news/arc/{topic}", response_class=HTMLResponse)
+@router.get("/news/arc/{topic}")
 async def arc_page_redirect(
     topic: str,
     request: Request,

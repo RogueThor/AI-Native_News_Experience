@@ -21,7 +21,7 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "frontend", "templa
 
 class ConnectionManager:
     def __init__(self):
-        # user_id → WebSocket
+        # user_id -> WebSocket
         self.active_connections: dict[str, WebSocket] = {}
 
     async def connect(self, user_id: str, websocket: WebSocket):

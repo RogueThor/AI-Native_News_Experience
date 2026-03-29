@@ -32,7 +32,7 @@ def _generate_ken_burns(image_bytes: bytes) -> str | None:
 
         frames: list[Image.Image] = []
         for i in range(FRAMES):
-            t = i / (FRAMES - 1)  # 0.0 → 1.0
+            t = i / (FRAMES - 1)  # 0.0 -> 1.0
             zoom = ZOOM_START + (ZOOM_END - ZOOM_START) * t
 
             new_w = int(GIF_WIDTH * zoom)
