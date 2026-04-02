@@ -10,7 +10,7 @@ if sys.platform == 'win32':
 
 load_dotenv()
 # Direct shard URI to bypass SRV SSL issues on Windows
-uri = "mongodb://RogueThor:Abhinav%402002@ac-zrgexzo-shard-00-00.ncqhh6k.mongodb.net:27017,ac-zrgexzo-shard-00-01.ncqhh6k.mongodb.net:27017,ac-zrgexzo-shard-00-02.ncqhh6k.mongodb.net:27017/?replicaSet=atlas-y8t3yz-shard-0&ssl=true&authSource=admin"
+uri = "mongodb://username:password@ac-zrgexzo-shard-00-00.ncqhh6k.mongodb.net:27017,ac-zrgexzo-shard-00-01.ncqhh6k.mongodb.net:27017,ac-zrgexzo-shard-00-02.ncqhh6k.mongodb.net:27017/?replicaSet=atlas-y8t3yz-shard-0&ssl=true&authSource=admin"
 db_name = os.getenv("MONGO_DB_NAME", "NewsSpark")
 
 async def test_motor():
